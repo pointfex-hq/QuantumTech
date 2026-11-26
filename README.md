@@ -1,3 +1,4 @@
+
 # QuantumTech — Premium Tech Accessories E-Commerce Platform
 
 QuantumTech is a modern, high-performance, responsive e-commerce web application designed for premium consumer electronics, chargers, audio gear, and lifestyle gadgets in Bangladesh. The platform features an end-to-end guest checkout workflow, a bilingual English/Bangla localization system, dynamic promotional campaigns and popup marketing, an order verification and review moderation engine, and an enterprise-grade Admin Dashboard equipped with real-time product variant stock synchronization.
@@ -302,3 +303,6 @@ To access the Admin Portal (`/admin` or `/admin/login`):
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
+=======
+# QuantumTech
+
