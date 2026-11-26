@@ -57,7 +57,8 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       'success',
       language === 'bn' ? 'কার্টে যোগ হয়েছে' : 'Added to Cart'
     );
-    setIsCartOpen(true);
+    // Issue #7: do not open the cart drawer here. The toast and the header cart badge confirm
+    // the add, so the customer can keep shopping; the drawer opens only from the cart icon.
     return true;
   };
 
@@ -71,6 +72,11 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const updateQuantity = (itemId: string, quantity: number) => {
+    // Issue #7: decreasing below 1 removes the line, same as the bin icon (with its toast).
+    if (quantity < 1) {
+      removeFromCart(itemId);
+      return;
+    }
     const res = cartService.updateQuantity(itemId, quantity);
     setItems(res.items);
 

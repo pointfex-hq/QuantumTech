@@ -174,6 +174,7 @@ export const CartPage: React.FC = () => {
                         <div className="flex items-center">
                           <QuantitySelector
                             quantity={item.quantity}
+                            min={0}
                             max={maxStock}
                             onChange={(newQty) => updateQuantity(item.id, newQty)}
                           />

@@ -145,6 +145,7 @@ export const CartDrawer: React.FC = () => {
                         <div className="flex items-center justify-between pt-2">
                           <QuantitySelector
                             quantity={item.quantity}
+                            min={0}
                             max={maxStock}
                             onChange={(newQty) => updateQuantity(item.id, newQty)}
                           />

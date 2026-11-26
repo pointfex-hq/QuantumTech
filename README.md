@@ -43,6 +43,7 @@ QuantumTech is a modern, high-performance, responsive e-commerce web application
 - **Dynamic Pricing & Countdown Timers**: Displays active prices, previous strike-through prices, promotional percentage discounts, calculated savings, and real-time flash deal countdown clocks.
 - **Variants Support**: Color, model, and size variant selectors with individual variant stock allocation.
 - **Storefront Availability Protection**: Add to Cart button automatically disables if a selected variant is out of stock.
+- **Uninterrupted Shopping Cart**: Add to Cart confirms with a toast and the header cart badge without opening the cart drawer; in the cart drawer and cart page the minus button decreases quantity and removes the item when it goes below 1, with count and subtotal updating instantly.
 - **Direct Engagement Actions**: Integrated WhatsApp inquiry, Messenger chat, Facebook sharing, and quick link copy.
 
 ### Bilingual Localization (EN / BN)
@@ -266,6 +267,7 @@ npm run test:admin          # Admin dashboard & product management tests
 npm run test:admin-orders   # Order management & payment verification tests
 npm run test:language       # Bilingual English/Bangla localization tests
 npm run test:customer       # Customer shopping, cart, checkout, and tracking tests
+npm run test:cart           # Add-to-cart & quantity stepper behaviour (Issue #7), desktop + mobile
 npm run test:journeys       # Comprehensive end-to-end customer purchase journeys
 npm run audit               # 360px-1920px responsive & viewport audit
 ```
