@@ -6,7 +6,7 @@ import { PriceDisplay } from './PriceDisplay';
 import { useLanguage } from '../context/LanguageContext';
 import { useCart } from '../context/CartContext';
 import { Icons } from '../utilities/icons';
-import { formatNumber } from '../utilities/currency';
+import { formatDigits, formatNumber } from '../utilities/currency';
 import { promotionService } from '../services/promotionService';
 
 interface ProductCardProps {
@@ -83,7 +83,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, className = '
             )}
             {badgeText && (
               <span data-testid="product-promo-badge" className="caption-3 px-2 py-0.5 rounded bg-error text-white shadow-sm font-bold">
-                {badgeText}
+                {formatDigits(badgeText, language)}
               </span>
             )}
           </div>
@@ -128,7 +128,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, className = '
               <FontAwesomeIcon icon={Icons.star} className="h-3 w-3" />
             </div>
             <span className="caption-3 font-semibold text-ink">
-              {formatNumber(product.rating.toFixed(1) as any, language)}
+              {formatNumber(product.rating.toFixed(1), language)}
             </span>
             <span className="caption-5 text-muted">
               ({formatNumber(product.reviewsCount, language)})

@@ -1,5 +1,5 @@
 import React from 'react';
-import { formatCurrency } from '../utilities/currency';
+import { formatCurrency, formatNumber } from '../utilities/currency';
 import { useLanguage } from '../context/LanguageContext';
 
 interface PriceDisplayProps {
@@ -62,7 +62,7 @@ export const PriceDisplay: React.FC<PriceDisplayProps> = ({
 
       {showDiscountBadge && discountPercent > 0 && (
         <span className={`${currentSize.badge} rounded bg-error-soft text-error font-medium`}>
-          -{discountPercent}%
+          -{formatNumber(discountPercent, language)}%
         </span>
       )}
     </div>

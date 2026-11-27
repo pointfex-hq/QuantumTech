@@ -71,8 +71,9 @@ export default {
         '900': '96px',
       },
       fontFamily: {
-        sans: ['Inter', 'Hind Siliguri', 'sans-serif'],
-        bengali: ['Hind Siliguri', 'Inter', 'sans-serif'],
+        sans: ['Inter', 'Noto Sans Bengali', 'Hind Siliguri', 'sans-serif'],
+        bengali: ['Noto Sans Bengali', 'Hind Siliguri', 'Inter', 'sans-serif'],
+        mono: ['ui-monospace', 'SFMono-Regular', 'Noto Sans Bengali', 'Hind Siliguri', 'monospace'],
       },
       screens: {
         'xs': '360px',

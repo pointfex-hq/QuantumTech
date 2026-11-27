@@ -7,6 +7,7 @@ import { useCart } from '../context/CartContext';
 import { useToast } from '../context/ToastContext';
 import { useLanguage } from '../context/LanguageContext';
 import { Icons } from '../utilities/icons';
+import { formatCurrency } from '../utilities/currency';
 import { PromotionalPopup, Product } from '../types';
 
 export const PromotionalPopupContainer: React.FC = () => {
@@ -464,9 +465,9 @@ export const PromotionalPopupContainer: React.FC = () => {
                 <p className="caption-3 text-muted line-clamp-2">{popup.description}</p>
                 {product && (
                   <div className="flex items-baseline gap-2 mt-1">
-                    <span className="heading-5 font-bold text-quantum">৳{product.price.toLocaleString('en-IN')}</span>
+                    <span className="heading-5 font-bold text-quantum">{formatCurrency(product.price, language)}</span>
                     {product.oldPrice && product.oldPrice > product.price && (
-                      <span className="caption-3 text-muted line-through">৳{product.oldPrice.toLocaleString('en-IN')}</span>
+                      <span className="caption-3 text-muted line-through">{formatCurrency(product.oldPrice, language)}</span>
                     )}
                   </div>
                 )}
