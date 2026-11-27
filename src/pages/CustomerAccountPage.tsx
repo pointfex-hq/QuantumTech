@@ -20,7 +20,7 @@ export const CustomerAccountPage: React.FC = () => {
         <h1 id="customer-account-title" className="text-2xl font-bold text-ink">
           {isBangla ? 'লগইন / আমার অ্যাকাউন্ট' : 'Login / My Account'}
         </h1>
-        <p className="mt-3 text-sm leading-6 text-muted">
+        <p role="status" aria-live="polite" className="mt-3 text-sm leading-6 text-muted">
           {isBangla
             ? 'গ্রাহক অ্যাকাউন্টে লগইন এখনো চালু হয়নি। এখানে কোনো অ্যাকাউন্ট তৈরি বা পাসওয়ার্ড সংরক্ষণ করা হবে না।'
             : 'Customer sign-in is not available yet. No account will be created and no password will be stored here.'}
