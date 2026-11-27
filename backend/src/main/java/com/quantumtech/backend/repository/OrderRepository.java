@@ -8,5 +8,6 @@ import java.util.Optional;
 public interface OrderRepository extends MongoRepository<Order, String> {
     Optional<Order> findByOrderNumberIgnoreCase(String orderNumber);
     Optional<Order> findByTrxIdIgnoreCase(String trxId);
+    boolean existsByTrxIdIgnoreCase(String trxId);
     Optional<Order> findByIdempotencyKey(String idempotencyKey);
 }

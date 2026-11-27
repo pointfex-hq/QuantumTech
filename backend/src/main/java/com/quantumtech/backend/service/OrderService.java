@@ -1,55 +1,91 @@
 package com.quantumtech.backend.service;
 
-import com.quantumtech.backend.dto.CreateOrderRequest;
+import com.quantumtech.backend.config.OrderIndexInitializer;
+import com.quantumtech.backend.dto.CartLine;
+import com.quantumtech.backend.dto.CartQuote;
 import com.quantumtech.backend.dto.CampaignAnalyticsRequest;
 import com.quantumtech.backend.dto.CouponValidationRequest;
+import com.quantumtech.backend.dto.CreateOrderRequest;
 import com.quantumtech.backend.dto.OrderStatusRequest;
-import com.quantumtech.backend.dto.PaymentStatusRequest;
+import com.quantumtech.backend.dto.Phone;
 import com.quantumtech.backend.exception.ApiException;
 import com.quantumtech.backend.model.*;
 import com.quantumtech.backend.repository.OrderRepository;
 import com.quantumtech.backend.repository.ProductRepository;
-import com.quantumtech.backend.repository.SettingsRepository;
+import com.quantumtech.backend.service.StockService.Reservation;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
-import java.time.LocalDate;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * Guest checkout, order tracking and the admin order lifecycle.
+ *
+ * <p>Checkout pipeline: validate request, then price the cart server-side ({@link CartService}),
+ * then reserve stock atomically ({@link StockService}), then allocate an order number, then insert.
+ * Any failure after reservation releases the reserved stock again.
+ */
 @Service
 public class OrderService {
+    private static final Logger log = LoggerFactory.getLogger(OrderService.class);
+    private static final int MAX_ORDER_NUMBER_ATTEMPTS = 5;
+    static final String TRX_ID_PATTERN = "[A-Za-z0-9]{8,12}";
+
     private final OrderRepository orders;
     private final ProductRepository products;
-    private final SettingsRepository settings;
+    private final CartService cart;
+    private final StockService stock;
+    private final OrderNumberGenerator orderNumbers;
+    private final PaymentMethodCatalog paymentMethods;
+    private final LookupRateLimiter lookupLimiter;
     private final NotificationService notificationService;
     private final PromotionService promotions;
-    private final Map<String, Deque<Instant>> trackingAttempts = new ConcurrentHashMap<>();
+    private final MongoTemplate mongo;
 
-    public OrderService(OrderRepository orders, ProductRepository products,
-                        SettingsRepository settings, NotificationService notificationService,
+    public OrderService(OrderRepository orders, ProductRepository products, CartService cart,
+                        StockService stock, OrderNumberGenerator orderNumbers,
+                        PaymentMethodCatalog paymentMethods, LookupRateLimiter lookupLimiter,
+                        NotificationService notificationService, MongoTemplate mongo,
                         PromotionService promotions) {
         this.orders = orders;
         this.products = products;
-        this.settings = settings;
+        this.cart = cart;
+        this.stock = stock;
+        this.orderNumbers = orderNumbers;
+        this.paymentMethods = paymentMethods;
+        this.lookupLimiter = lookupLimiter;
         this.notificationService = notificationService;
+        this.mongo = mongo;
         this.promotions = promotions;
     }
 
+    // ------------------------------------------------------------------ admin queries
+
     public List<Order> list(String status, String paymentMethod, String search) {
+        return list(status, paymentMethod, null, search);
+    }
+
+    public List<Order> list(String status, String paymentMethod, String paymentStatus, String search) {
+        String term = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
+        String phoneTerm = term.replaceAll("[\\s-]", "");
         return orders.findAll().stream()
-                .filter(o -> status == null || status.isBlank() || status.equals(o.getStatus()))
-                .filter(o -> paymentMethod == null || paymentMethod.isBlank()
-                        || paymentMethod.equals(o.getPaymentMethod()))
-                .filter(o -> search == null || search.isBlank()
-                        || o.getOrderNumber().toLowerCase().contains(search.toLowerCase())
-                        || o.getPhone().contains(search.replaceAll("[\\s-]", ""))
-                        || o.getCustomerName().toLowerCase().contains(search.toLowerCase()))
-                .sorted((a, b) -> b.getCreatedAt().compareTo(a.getCreatedAt()))
+                .filter(o -> isBlank(status) || status.equals(o.getStatus()))
+                .filter(o -> isBlank(paymentMethod) || paymentMethod.equals(o.getPaymentMethod()))
+                .filter(o -> isBlank(paymentStatus) || paymentStatus.equals(o.getPaymentStatus()))
+                .filter(o -> term.isEmpty()
+                        || contains(o.getOrderNumber(), term)
+                        || (!phoneTerm.isEmpty() && o.getPhone() != null && o.getPhone().contains(phoneTerm))
+                        || contains(o.getCustomerName(), term)
+                        || contains(o.getTrxId(), term))
+                .sorted(Comparator.comparing(Order::getCreatedAt,
+                        Comparator.nullsLast(Comparator.reverseOrder())))
                 .toList();
     }
 
@@ -63,270 +99,336 @@ public class OrderService {
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Order not found"));
     }
 
-    @Transactional
+    // ------------------------------------------------------------------ checkout
+
     public synchronized Order create(CreateOrderRequest request, String idempotencyKey) {
-        if (idempotencyKey != null) {
-            Optional<Order> existing = orders.findByIdempotencyKey(idempotencyKey);
+        String key = normalizeIdempotencyKey(idempotencyKey);
+        if (key != null) {
+            Optional<Order> existing = orders.findByIdempotencyKey(key);
             if (existing.isPresent()) return existing.get();
         }
-        if (!"COD".equals(request.paymentMethod())
-                && !"bKash".equals(request.paymentMethod())
-                && !"Nagad".equals(request.paymentMethod())) {
+
+        String method = request.paymentMethod();
+        if (!PaymentMethod.isValid(method)) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Invalid payment method");
         }
-        if (!"Inside Dhaka".equals(request.area()) && !"Outside Dhaka".equals(request.area())) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Invalid delivery area");
+        if (!paymentMethods.isAvailable(method)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    method + " payment is not available right now. Please choose another payment method.",
+                    Map.of("code", "PAYMENT_METHOD_UNAVAILABLE"));
         }
-        if ("bKash".equals(request.paymentMethod()) || "Nagad".equals(request.paymentMethod())) {
-            if (request.trxId() == null || !request.trxId().matches("[A-Za-z0-9]{8,12}")
-                    || request.senderNumber() == null
-                    || !request.senderNumber().matches("01[3-9][0-9]{8}")) {
-                throw new ApiException(HttpStatus.BAD_REQUEST,
-                        "Valid TrxID and sender number are required");
-            }
-            if (orders.findByTrxIdIgnoreCase(request.trxId()).isPresent()) {
-                throw new ApiException(HttpStatus.CONFLICT, "This TrxID has already been used");
-            }
+        String phone = Phone.normalize(request.phone());
+        if (!Phone.isValid(phone)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, Phone.MESSAGE);
         }
 
-        Instant now = Instant.now();
-        String date = DateTimeFormatter.ofPattern("yyMMdd").withLocale(Locale.ENGLISH)
-                .format(LocalDate.now(ZoneOffset.UTC));
-        long count = orders.count();
-        String orderNumber = "QT-" + date + "-" + String.format(Locale.ENGLISH, "%04d", count + 1);
-
-        StoreSettings store = settings.findById("store").orElse(new StoreSettings());
-        int delivery = "Inside Dhaka".equals(request.area())
-                ? store.getDeliveryChargeInsideDhaka()
-                : store.getDeliveryChargeOutsideDhaka();
-        int subtotal = 0;
-        int promotionalSavings = 0;
-        List<OrderItem> validatedItems = new ArrayList<>();
-        List<CouponValidationRequest.CartLine> couponLines = new ArrayList<>();
-        Map<String, Product> changedProducts = new LinkedHashMap<>();
-
-        for (OrderItem incoming : request.items()) {
-            if (incoming.getQuantity() < 1) {
-                throw new ApiException(HttpStatus.BAD_REQUEST, "Quantity must be at least 1");
+        String trxId = null;
+        String senderNumber = null;
+        if (PaymentMethod.isMobileWallet(method)) {
+            trxId = request.trxId() == null ? null : request.trxId().trim().toUpperCase(Locale.ROOT);
+            senderNumber = Phone.normalize(request.senderNumber());
+            if (trxId == null || !trxId.matches(TRX_ID_PATTERN) || !Phone.isValid(senderNumber)) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "Valid TrxID and sender number are required",
+                        Map.of("code", "PAYMENT_DETAILS_INVALID"));
             }
-            Product product = changedProducts.get(incoming.getProductId());
-            if (product == null) {
-                product = products.findById(incoming.getProductId())
-                        .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST,
-                                "Product not available: " + incoming.getProductId()));
-                changedProducts.put(product.getId(), product);
-            }
-            if ("Deleted".equals(product.getStatus()) || "Hidden".equals(product.getStatus())) {
-                throw new ApiException(HttpStatus.BAD_REQUEST, "Product is not available");
-            }
-            boolean hasVariants = product.getVariants() != null && !product.getVariants().isEmpty();
-            if (hasVariants && (incoming.getVariantId() == null
-                    || incoming.getVariantId().isBlank())) {
-                throw new ApiException(HttpStatus.BAD_REQUEST,
-                        "A variant must be selected for product " + product.getName());
-            }
-            PromotionService.PriceResult price = promotions.calculateProductPrice(
-                    product, incoming.getVariantId());
-            int unitPrice = (int) Math.round(price.finalPrice());
-            if (incoming.getVariantId() != null && !incoming.getVariantId().isBlank()) {
-                ProductVariant variant = Optional.ofNullable(product.getVariants()).orElse(List.of()).stream()
-                        .filter(v -> incoming.getVariantId().equals(v.getId()))
-                        .findFirst()
-                        .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "Variant not found"));
-                if (incoming.getQuantity() > variant.getStock()) {
-                    throw new ApiException(HttpStatus.CONFLICT, "Insufficient stock");
-                }
-                variant.setStock(variant.getStock() - incoming.getQuantity());
-                incoming.setVariantName(variant.getValue());
-                incoming.setImage(variant.getImage() != null ? variant.getImage()
-                        : (product.getImages().isEmpty() ? null : product.getImages().get(0)));
-                product.setStock(product.getVariants().stream()
-                        .mapToInt(v -> Math.max(0, v.getStock())).sum());
-            } else {
-                if (incoming.getQuantity() > product.getStock()) {
-                    throw new ApiException(HttpStatus.CONFLICT, "Insufficient stock");
-                }
-                product.setStock(product.getStock() - incoming.getQuantity());
-                incoming.setImage(product.getImages().isEmpty() ? null : product.getImages().get(0));
-            }
-            incoming.setId(UUID.randomUUID().toString());
-            incoming.setOrderId("");
-            incoming.setProductName(product.getName());
-            incoming.setUnitPrice(unitPrice);
-            incoming.setLineTotal(unitPrice * incoming.getQuantity());
-            incoming.setOriginalPrice((int) Math.round(price.originalPrice()));
-            incoming.setDiscountAmount((int) Math.round(price.discountAmount()));
-            incoming.setAppliedDiscountId(price.discountId());
-            subtotal += incoming.getLineTotal();
-            promotionalSavings += incoming.getDiscountAmount() * incoming.getQuantity();
-            couponLines.add(new CouponValidationRequest.CartLine(product.getId(),
-                    product.getCategoryId(), incoming.getLineTotal()));
-            validatedItems.add(incoming);
+            ensureTrxIdUnused(trxId);
         }
 
-        int couponDiscount = 0;
-        String couponCode = request.couponCode();
-        if (couponCode != null && !couponCode.isBlank()) {
-            PromotionService.CouponValidationResult validation = promotions.validateCoupon(
-                    new CouponValidationRequest(couponCode, request.phone(), couponLines));
-            if (!validation.valid()) {
-                throw new ApiException(HttpStatus.BAD_REQUEST, validation.error());
+        CartQuote quote = cart.quote(request.items(), request.area());
+        if (!quote.valid()) {
+            throw new ApiException(HttpStatus.CONFLICT, quote.issues().get(0),
+                    Map.of("code", "CART_INVALID", "cart", quote));
+        }
+        PromotionService.CouponValidationResult coupon = isBlank(request.couponCode())
+                ? null : validateCoupon(request.couponCode(), phone, quote);
+        int couponDiscount = coupon == null ? 0 : (int) Math.round(coupon.discountAmount());
+        int total = Math.max(0, quote.total() - couponDiscount);
+        if (request.total() != null && request.total() != total) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                    "Prices or discounts have changed. Please review your order total of " + total + " BDT.",
+                    Map.of("code", "PRICE_CHANGED", "cart", quote));
+        }
+
+        List<Reservation> reserved = reserveStock(quote);
+        Order saved;
+        try {
+            Order order = buildOrder(request, quote, phone, trxId, senderNumber, key,
+                    coupon == null ? null : coupon.coupon().getCode(), couponDiscount);
+            saved = insertWithOrderNumber(order);
+        } catch (DuplicateKeyException ex) {
+            stock.releaseAll(reserved);
+            String message = String.valueOf(ex.getMessage());
+            if (key != null && message.contains(OrderIndexInitializer.IDEMPOTENCY_INDEX)) {
+                return orders.findByIdempotencyKey(key).orElseThrow(() -> ex);
             }
-            couponDiscount = (int) Math.round(validation.discountAmount());
-            couponCode = validation.coupon().getCode();
-        } else {
-            couponCode = null;
+            if (message.contains(OrderIndexInitializer.TRX_ID_INDEX)) throw trxIdUsed();
+            throw ex;
+        } catch (RuntimeException ex) {
+            stock.releaseAll(reserved);
+            throw ex;
         }
-        int total = Math.max(0, subtotal + delivery - couponDiscount);
-        Order order = new Order();
-        order.setId(UUID.randomUUID().toString());
-        order.setOrderNumber(orderNumber);
-        order.setCustomerName(request.customerName().trim());
-        order.setPhone(request.phone().replaceAll("[\\s-]", ""));
-        order.setArea(request.area());
-        order.setAddress(request.address().trim());
-        order.setNote(request.note());
-        order.setSubtotal(subtotal);
-        order.setPromotionalDiscount(promotionalSavings > 0 ? promotionalSavings : null);
-        order.setCouponCode(couponCode);
-        order.setCouponDiscount(couponDiscount > 0 ? couponDiscount : null);
-        order.setDeliveryCharge(delivery);
-        order.setTotal(total);
-        order.setPaymentMethod(request.paymentMethod());
-        order.setPaymentStatus("COD".equals(request.paymentMethod())
-                ? "Pending collection" : "Verification pending");
-        order.setTrxId("COD".equals(request.paymentMethod()) ? null
-                : request.trxId().trim().toUpperCase());
-        order.setSenderNumber("COD".equals(request.paymentMethod()) ? null
-                : request.senderNumber().replaceAll("[\\s-]", ""));
-        order.setPaymentTrxId(order.getTrxId());
-        order.setPaymentSender(order.getSenderNumber());
-        order.setStatus("Pending");
-        order.setSource(request.source());
-        order.setLanguage(request.language() == null ? "en" : request.language());
-        order.setNotificationStatus("Pending");
-        order.setIdempotencyKey(idempotencyKey);
-        order.setCreatedAt(now);
-        order.setUpdatedAt(now);
-        for (OrderItem item : validatedItems) item.setOrderId(order.getId());
-        order.setItems(validatedItems);
-
-        OrderStatusLog log = new OrderStatusLog();
-        log.setId(UUID.randomUUID().toString());
-        log.setOrderId(order.getId());
-        log.setFromStatus("Pending");
-        log.setToStatus("Pending");
-        log.setChangedBy("System");
-        log.setChangedAt(now);
-        log.setNote("Order placed by customer via guest checkout.");
-        order.setHistory(List.of(log));
-
-        changedProducts.values().forEach(products::save);
-        Order saved = orders.save(order);
-        if (couponCode != null) {
-            promotions.recordCouponUsage(couponCode, request.phone(), orderNumber, couponDiscount);
-            promotions.track(new CampaignAnalyticsRequest(null, null, "coupon_applied",
-                    null, couponCode, orderNumber, (double) couponDiscount, "/checkout"));
-        }
-        promotions.track(new CampaignAnalyticsRequest(null, null, "order_completed",
-                null, couponCode, orderNumber, (double) saved.getTotal(), "/checkout"));
-        notificationService.notifyOwner(saved);
+        recordPromotionEvents(saved, coupon, phone, couponDiscount);
+        notifyOwnerSafely(saved);
         return saved;
     }
 
-    public Order track(String orderNumber, String phone, String key) {
-        Instant now = Instant.now();
-        Deque<Instant> attempts = trackingAttempts.computeIfAbsent(key, k -> new ArrayDeque<>());
-        synchronized (attempts) {
-            while (!attempts.isEmpty() &&
-                    attempts.peekFirst().isBefore(now.minusSeconds(15 * 60))) attempts.removeFirst();
-            if (attempts.size() >= 10) {
-                throw new ApiException(HttpStatus.TOO_MANY_REQUESTS,
-                        "Too many lookup attempts. Please wait 15 minutes");
+    private void recordPromotionEvents(Order order, PromotionService.CouponValidationResult coupon,
+                                       String phone, int couponDiscount) {
+        if (coupon != null) {
+            try {
+                promotions.recordCouponUsage(coupon.coupon().getCode(), phone,
+                        order.getOrderNumber(), couponDiscount);
+                promotions.track(new CampaignAnalyticsRequest(null, null, "coupon_applied",
+                        null, coupon.coupon().getCode(), order.getOrderNumber(),
+                        (double) couponDiscount, "/checkout"));
+            } catch (RuntimeException ex) {
+                log.error("Order {} was placed but coupon usage could not be recorded",
+                        order.getOrderNumber(), ex);
             }
-            attempts.addLast(now);
         }
-        String cleanPhone = phone.replaceAll("[\\s-]", "");
-        return orders.findByOrderNumberIgnoreCase(orderNumber.trim())
-                .filter(o -> o.getPhone().replaceAll("[\\s-]", "").equals(cleanPhone))
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND,
-                        "No order found matching this order number and phone"));
+        try {
+            promotions.track(new CampaignAnalyticsRequest(null, null, "order_completed",
+                    null, order.getCouponCode(), order.getOrderNumber(),
+                    (double) order.getTotal(), "/checkout"));
+        } catch (RuntimeException ex) {
+            log.error("Order {} was placed but campaign analytics could not be recorded",
+                    order.getOrderNumber(), ex);
+        }
     }
 
-    public Order verifyPayment(String id, PaymentStatusRequest request) {
-        Order order = getById(id);
-        if (!"bKash".equals(order.getPaymentMethod()) && !"Nagad".equals(order.getPaymentMethod())) {
-            throw new ApiException(HttpStatus.BAD_REQUEST,
-                    "Payment verification is only for bKash or Nagad");
+    private List<Reservation> reserveStock(CartQuote quote) {
+        List<Reservation> reserved = new ArrayList<>();
+        for (CartLine line : quote.items()) {
+            Reservation reservation = new Reservation(line.productId(), line.variantId(), line.quantity());
+            if (!stock.reserve(reservation)) {
+                stock.releaseAll(reserved);
+                String name = line.variantName() == null ? line.productName()
+                        : line.productName() + " (" + line.variantName() + ")";
+                throw new ApiException(HttpStatus.CONFLICT,
+                        name + " just went out of stock. Please review your cart.",
+                        Map.of("code", "OUT_OF_STOCK"));
+            }
+            reserved.add(reservation);
         }
-        order.setPaymentStatus(request.status());
-        order.setUpdatedAt(Instant.now());
-        addHistory(order, order.getStatus(), order.getStatus(), "Admin",
-                "Payment status updated to " + request.status(), request.note());
-        return orders.save(order);
+        return reserved;
     }
+
+    private Order buildOrder(CreateOrderRequest request, CartQuote quote, String phone,
+                             String trxId, String senderNumber, String key,
+                             String couponCode, int couponDiscount) {
+        Instant now = Instant.now();
+        Order order = new Order();
+        order.setId(UUID.randomUUID().toString());
+        order.setCustomerName(request.customerName().trim());
+        order.setPhone(phone);
+        order.setArea(request.area());
+        order.setAddress(request.address().trim());
+        order.setNote(isBlank(request.note()) ? null : request.note().trim());
+        order.setSubtotal(quote.subtotal());
+        int promotionalSavings = quote.items().stream()
+                .mapToInt(line -> line.discountAmount() * line.quantity()).sum();
+        order.setPromotionalDiscount(promotionalSavings > 0 ? promotionalSavings : null);
+        order.setCouponCode(couponCode);
+        order.setCouponDiscount(couponDiscount > 0 ? couponDiscount : null);
+        order.setDeliveryCharge(quote.deliveryCharge());
+        order.setTotal(Math.max(0, quote.total() - couponDiscount));
+        order.setPaymentMethod(request.paymentMethod());
+        boolean wallet = PaymentMethod.isMobileWallet(request.paymentMethod());
+        order.setPaymentStatus(wallet ? PaymentStatus.VERIFICATION_PENDING : PaymentStatus.PENDING_COLLECTION);
+        order.setTrxId(trxId);
+        order.setSenderNumber(senderNumber);
+        order.setPaymentTrxId(trxId);
+        order.setPaymentSender(senderNumber);
+        order.setStatus(OrderStatus.PENDING);
+        order.setSource(isBlank(request.source()) ? null : request.source().trim());
+        order.setLanguage(request.language() == null ? "en" : request.language());
+        order.setNotificationStatus("Pending");
+        order.setIdempotencyKey(key);
+        order.setCreatedAt(now);
+        order.setUpdatedAt(now);
+
+        List<OrderItem> items = new ArrayList<>();
+        for (CartLine line : quote.items()) {
+            OrderItem item = new OrderItem();
+            item.setId(UUID.randomUUID().toString());
+            item.setOrderId(order.getId());
+            item.setProductId(line.productId());
+            item.setVariantId(line.variantId());
+            item.setProductName(line.productName());
+            item.setVariantName(line.variantName());
+            item.setUnitPrice(line.unitPrice());
+            item.setOriginalPrice(line.originalPrice());
+            item.setDiscountAmount(line.discountAmount());
+            item.setAppliedDiscountId(line.appliedDiscountId());
+            item.setQuantity(line.quantity());
+            item.setLineTotal(line.lineTotal());
+            item.setImage(line.image());
+            items.add(item);
+        }
+        order.setItems(items);
+
+        OrderStatusLog placed = new OrderStatusLog();
+        placed.setId(UUID.randomUUID().toString());
+        placed.setOrderId(order.getId());
+        placed.setFromStatus(OrderStatus.PENDING);
+        placed.setToStatus(OrderStatus.PENDING);
+        placed.setChangedBy("Customer");
+        placed.setChangedAt(now);
+        placed.setNote("Order placed by customer via guest checkout (" + request.paymentMethod() + ").");
+        order.setHistory(new ArrayList<>(List.of(placed)));
+        return order;
+    }
+
+    private PromotionService.CouponValidationResult validateCoupon(
+            String code, String phone, CartQuote quote) {
+        PromotionService.CouponValidationResult result = promotions.validateCoupon(
+                new CouponValidationRequest(code, phone, quote.items().stream()
+                        .filter(CartLine::isOk)
+                        .map(line -> new CouponValidationRequest.CartLine(
+                                line.productId(), line.categoryId(), line.lineTotal()))
+                        .toList()));
+        if (!result.valid()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, result.error(),
+                    Map.of("code", "COUPON_INVALID"));
+        }
+        return result;
+    }
+
+    /** Retries with a fresh number if an order number collides (e.g. with legacy numbering). */
+    private Order insertWithOrderNumber(Order order) {
+        for (int attempt = 1; ; attempt++) {
+            order.setOrderNumber(orderNumbers.next());
+            try {
+                return orders.insert(order);
+            } catch (DuplicateKeyException ex) {
+                boolean numberClash = String.valueOf(ex.getMessage())
+                        .contains(OrderIndexInitializer.ORDER_NUMBER_INDEX);
+                if (!numberClash || attempt >= MAX_ORDER_NUMBER_ATTEMPTS) throw ex;
+                log.warn("Order number {} already exists, retrying", order.getOrderNumber());
+            }
+        }
+    }
+
+    private void notifyOwnerSafely(Order order) {
+        try {
+            notificationService.notifyOwner(order);
+        } catch (RuntimeException ex) {
+            // The order is already placed; a notification problem must not fail checkout.
+            log.error("Could not schedule owner notification for order {}", order.getOrderNumber(), ex);
+        }
+    }
+
+    void ensureTrxIdUnused(String trxId) {
+        if (orders.existsByTrxIdIgnoreCase(trxId)) throw trxIdUsed();
+    }
+
+    static ApiException trxIdUsed() {
+        return new ApiException(HttpStatus.CONFLICT, "This TrxID has already been used",
+                Map.of("code", "TRXID_USED"));
+    }
+
+    private static String normalizeIdempotencyKey(String key) {
+        if (key == null || key.isBlank()) return null;
+        String trimmed = key.trim();
+        if (trimmed.length() > 100) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "X-Idempotency-Key must be at most 100 characters");
+        }
+        return trimmed;
+    }
+
+    // ------------------------------------------------------------------ tracking
+
+    /** Public lookup; both the order number and the phone used at checkout must match. */
+    public Order track(String orderNumber, String phone, String clientKey) {
+        lookupLimiter.check(clientKey);
+        return findForCustomer(orderNumber, phone);
+    }
+
+    Order findForCustomer(String orderNumber, String phone) {
+        ApiException notFound = new ApiException(HttpStatus.NOT_FOUND,
+                "No order found matching this order number and phone");
+        if (isBlank(orderNumber) || !Phone.isValid(phone)) throw notFound;
+        String cleanPhone = Phone.normalize(phone);
+        return orders.findByOrderNumberIgnoreCase(orderNumber.trim())
+                .filter(o -> cleanPhone.equals(Phone.normalize(o.getPhone())))
+                .orElseThrow(() -> notFound);
+    }
+
+    // ------------------------------------------------------------------ admin lifecycle
 
     public Order updateStatus(String id, OrderStatusRequest request) {
         Order order = getById(id);
         String from = order.getStatus();
         String to = request.status();
-        if ("Delivered".equals(from) || "Cancelled".equals(from)) {
+        String previousPaymentStatus = order.getPaymentStatus();
+
+        if (OrderStatus.isFinal(from)) {
             throw new ApiException(HttpStatus.CONFLICT, "A final order status cannot be changed");
         }
-        boolean allowed = ("Pending".equals(from) && ("Confirmed".equals(to) || "Cancelled".equals(to)))
-                || ("Confirmed".equals(from) && ("Shipped".equals(to) || "Cancelled".equals(to)))
-                || ("Shipped".equals(from) && ("Delivered".equals(to) || "Cancelled".equals(to)));
-        if (!allowed) {
-            throw new ApiException(HttpStatus.BAD_REQUEST,
-                    "Invalid transition from " + from + " to " + to);
+        if (!OrderStatus.canTransition(from, to)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Invalid transition from " + from + " to " + to);
         }
-        if ("Confirmed".equals(to) && ("bKash".equals(order.getPaymentMethod())
-                || "Nagad".equals(order.getPaymentMethod()))
-                && !"Verified".equals(order.getPaymentStatus())) {
-            throw new ApiException(HttpStatus.CONFLICT,
-                    "bKash/Nagad payment must be Verified before confirmation");
+        boolean wallet = PaymentMethod.isMobileWallet(order.getPaymentMethod());
+        if (OrderStatus.CONFIRMED.equals(to) && wallet && !PaymentStatus.VERIFIED.equals(previousPaymentStatus)) {
+            throw new ApiException(HttpStatus.CONFLICT, "bKash/Nagad payment must be Verified before confirmation");
         }
-        if ("Delivered".equals(to) && "COD".equals(order.getPaymentMethod())) {
-            order.setPaymentStatus("Pending collection");
-        }
-        if ("Cancelled".equals(to)) {
-            String reason = request.reason();
-            if (reason == null || reason.isBlank()) reason = request.note();
-            if (reason == null || reason.isBlank()) {
-                throw new ApiException(HttpStatus.BAD_REQUEST,
-                        "A cancellation reason is required");
+
+        String reason = null;
+        if (OrderStatus.CANCELLED.equals(to)) {
+            reason = !isBlank(request.reason()) ? request.reason() : request.note();
+            if (isBlank(reason)) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "A cancellation reason is required");
             }
             order.setCancellationReason(reason.trim());
-            restoreStock(order);
+            if (wallet) {
+                if (PaymentStatus.VERIFIED.equals(previousPaymentStatus)) {
+                    order.setPaymentStatus(PaymentStatus.REFUND_PENDING);
+                }
+            } else {
+                order.setPaymentStatus(PaymentStatus.CANCELLED);
+            }
         }
+        if (OrderStatus.DELIVERED.equals(to) && PaymentMethod.COD.equals(order.getPaymentMethod())) {
+            order.setPaymentStatus(PaymentStatus.COLLECTED);
+        }
+
         order.setStatus(to);
         order.setUpdatedAt(Instant.now());
         addHistory(order, from, to, "Admin",
-                request.note() == null ? "Status changed to " + to : request.note(),
-                request.reason());
-        return orders.save(order);
+                isBlank(request.note()) ? "Status changed to " + to : request.note().trim(), reason);
+        Order saved = saveIfUnchanged(order, from, previousPaymentStatus);
+
+        if (OrderStatus.CANCELLED.equals(to)) restoreStock(saved);
+        return saved;
     }
 
     private void restoreStock(Order order) {
-        for (OrderItem item : order.getItems()) {
-            products.findById(item.getProductId()).ifPresent(product -> {
-                if (item.getVariantId() != null) {
-                    product.getVariants().stream()
-                            .filter(v -> item.getVariantId().equals(v.getId()))
-                            .findFirst().ifPresent(v -> v.setStock(v.getStock() + item.getQuantity()));
-                    product.setStock(product.getVariants().stream()
-                            .mapToInt(v -> Math.max(0, v.getStock())).sum());
-                } else {
-                    product.setStock(product.getStock() + item.getQuantity());
-                }
-                products.save(product);
-            });
-        }
+        List<Reservation> lines = Objects.requireNonNullElse(order.getItems(), List.<OrderItem>of()).stream()
+                .map(i -> new Reservation(i.getProductId(), i.getVariantId(), i.getQuantity()))
+                .toList();
+        stock.releaseAll(lines);
     }
 
-    private void addHistory(Order order, String from, String to, String changedBy,
-                            String note, String reason) {
-        if (order.getHistory() == null) order.setHistory(new ArrayList<>());
+    /**
+     * Compare-and-set save: writes the order only if nobody changed its status or payment status
+     * since it was read, so two admins cannot e.g. cancel the same order twice (double restock).
+     */
+    Order saveIfUnchanged(Order order, String expectedStatus, String expectedPaymentStatus) {
+        Query query = Query.query(Criteria.where("_id").is(order.getId())
+                .and("status").is(expectedStatus)
+                .and("paymentStatus").is(expectedPaymentStatus));
+        Order previous = mongo.findAndReplace(query, order);
+        if (previous == null) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                    "This order was updated by someone else. Refresh and try again.",
+                    Map.of("code", "CONCURRENT_UPDATE"));
+        }
+        return order;
+    }
+
+    static void addHistory(Order order, String from, String to, String changedBy, String note, String reason) {
+        List<OrderStatusLog> history = order.getHistory() == null
+                ? new ArrayList<>() : new ArrayList<>(order.getHistory());
         OrderStatusLog entry = new OrderStatusLog();
         entry.setId(UUID.randomUUID().toString());
         entry.setOrderId(order.getId());
@@ -335,7 +437,8 @@ public class OrderService {
         entry.setChangedBy(changedBy);
         entry.setChangedAt(Instant.now());
         entry.setNote(note != null ? note : reason);
-        order.getHistory().add(entry);
+        history.add(entry);
+        order.setHistory(history);
     }
 
     public Map<String, Object> dashboard() {
@@ -343,20 +446,29 @@ public class OrderService {
         List<Product> productList = products.findAll();
         Map<String, Object> result = new HashMap<>();
         result.put("totalOrders", all.size());
-        result.put("pendingOrders", all.stream().filter(o -> "Pending".equals(o.getStatus())).count());
-        result.put("deliveredOrders", all.stream().filter(o -> "Delivered".equals(o.getStatus())).count());
+        result.put("pendingOrders", all.stream().filter(o -> OrderStatus.PENDING.equals(o.getStatus())).count());
+        result.put("deliveredOrders", all.stream().filter(o -> OrderStatus.DELIVERED.equals(o.getStatus())).count());
+        result.put("paymentVerificationPending", all.stream()
+                .filter(o -> OrderStatus.PENDING.equals(o.getStatus())
+                        && PaymentStatus.VERIFICATION_PENDING.equals(o.getPaymentStatus())).count());
+        result.put("refundPending", all.stream()
+                .filter(o -> PaymentStatus.REFUND_PENDING.equals(o.getPaymentStatus())).count());
         result.put("totalProducts", productList.stream().filter(p -> !"Deleted".equals(p.getStatus())).count());
-        int lowStockThreshold = settings.findById("store")
-                .map(StoreSettings::getLowStockThreshold)
-                .orElseGet(() -> new StoreSettings().getLowStockThreshold());
         result.put("lowStockProducts", productList.stream()
-                .filter(p -> !"Deleted".equals(p.getStatus())
-                        && p.getStock() <= lowStockThreshold).count());
+                .filter(p -> !"Deleted".equals(p.getStatus()) && p.getStock() <= 5).count());
         result.put("notificationFailed", all.stream()
                 .filter(o -> "Failed".equals(o.getNotificationStatus())).count());
         result.put("totalRevenue", all.stream()
-                .filter(o -> !"Cancelled".equals(o.getStatus()))
+                .filter(o -> !OrderStatus.CANCELLED.equals(o.getStatus()))
                 .mapToInt(Order::getTotal).sum());
         return result;
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
+
+    private static boolean contains(String value, String term) {
+        return value != null && value.toLowerCase(Locale.ROOT).contains(term);
     }
 }

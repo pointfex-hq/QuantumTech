@@ -1,10 +1,12 @@
 package com.quantumtech.backend.controller;
 
 import com.quantumtech.backend.dto.CreateOrderRequest;
+import com.quantumtech.backend.dto.OrderPublicResponse;
 import com.quantumtech.backend.dto.OrderStatusRequest;
 import com.quantumtech.backend.dto.PaymentStatusRequest;
 import com.quantumtech.backend.model.Order;
 import com.quantumtech.backend.service.OrderService;
+import com.quantumtech.backend.service.PaymentService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -17,31 +19,35 @@ import java.util.Map;
 @RequestMapping("/api")
 public class OrderController {
     private final OrderService orders;
+    private final PaymentService payments;
 
-    public OrderController(OrderService orders) {
+    public OrderController(OrderService orders, PaymentService payments) {
         this.orders = orders;
+        this.payments = payments;
     }
 
+    /** Guest checkout. Returns the order confirmation (201). Repeating the same idempotency key returns the same order. */
     @PostMapping("/orders")
     @ResponseStatus(HttpStatus.CREATED)
-    public Order create(@Valid @RequestBody CreateOrderRequest request,
-                        @RequestHeader(value = "X-Idempotency-Key", required = false) String key) {
-        return orders.create(request, key);
+    public OrderPublicResponse create(@Valid @RequestBody CreateOrderRequest request,
+                                      @RequestHeader(value = "X-Idempotency-Key", required = false) String key) {
+        return OrderPublicResponse.from(orders.create(request, key));
     }
 
+    /** Public tracking by order number + checkout phone. Rate limited per client IP. */
     @GetMapping("/orders/track")
-    public Order track(@RequestParam String orderNumber,
-                       @RequestParam String phone,
-                       HttpServletRequest request) {
-        String key = request.getRemoteAddr();
-        return orders.track(orderNumber, phone, key);
+    public OrderPublicResponse track(@RequestParam String orderNumber,
+                                     @RequestParam String phone,
+                                     HttpServletRequest request) {
+        return OrderPublicResponse.from(orders.track(orderNumber, phone, request.getRemoteAddr()));
     }
 
     @GetMapping("/admin/orders")
     public List<Order> list(@RequestParam(required = false) String status,
                             @RequestParam(required = false) String paymentMethod,
+                            @RequestParam(required = false) String paymentStatus,
                             @RequestParam(required = false) String search) {
-        return orders.list(status, paymentMethod, search);
+        return orders.list(status, paymentMethod, paymentStatus, search);
     }
 
     @GetMapping("/admin/orders/{id}")
@@ -58,7 +64,7 @@ public class OrderController {
     @PatchMapping("/admin/orders/{id}/payment")
     public Order verifyPayment(@PathVariable String id,
                                @Valid @RequestBody PaymentStatusRequest request) {
-        return orders.verifyPayment(id, request);
+        return payments.updatePaymentStatus(id, request);
     }
 
     @GetMapping("/admin/dashboard")
