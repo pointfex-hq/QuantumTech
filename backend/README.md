@@ -42,15 +42,16 @@ cp .env.example .env
 /tmp/apache-maven-3.9.9/bin/mvn spring-boot:run
 ```
 
-Set environment variables in `.env` or your terminal. MongoDB defaults to a local database:
+Set environment variables in `.env` or your terminal. `MONGODB_URI` is required and should be
+the MongoDB Atlas SRV connection string for deployment. `.env.example` contains a placeholder;
+replace it with your Atlas URI locally, and keep real credentials out of Git:
 
 ```properties
-MONGODB_URI=mongodb://localhost:27017/qtechdb
+MONGODB_URI=mongodb+srv://USERNAME:PASSWORD@CLUSTER.mongodb.net/qtechdb
 MONGODB_DATABASE=qtechdb
 ```
-
-For Atlas, set `MONGODB_URI=mongodb+srv://USER:PASSWORD@CLUSTER/qtechdb`.
 Cloudinary values are intentionally blank until credentials are provided.
+Set `CORS_ALLOWED_ORIGINS` to the actual frontend origin(s) when deploying outside Vercel.
 
 Swagger: `http://localhost:8080/swagger-ui`
 
@@ -64,10 +65,11 @@ Authorization: Bearer <JWT_FROM_LOGIN>
 Content-Type: application/json
 ```
 
-`frontendV2` currently keeps its service data in browser `localStorage` and imports mock data;
-it does not call this API yet. The endpoints below define the backend contract for that frontend,
-but the frontend service layer must be switched to HTTP requests before data is shared between
-browsers or persisted in MongoDB.
+The current `QuantumTech-main/src/services` layer keeps catalog, cart, checkout, order, review,
+settings, and promotion data in browser `localStorage`. Only administrator login currently calls
+the backend (`POST /api/auth/login`). These REST endpoints implement the server-side contract, but
+the storefront features will not use MongoDB or these APIs until their frontend services are wired
+to HTTP; frontend changes are intentionally outside this backend update.
 
 ### Authentication
 
@@ -125,6 +127,9 @@ Deleting a category with non-deleted products returns `409 Conflict`.
 |---|---|---|
 | POST | `/api/orders` | Public |
 | GET | `/api/orders/track?orderNumber=...&phone=...` | Public |
+| POST | `/api/cart/validate` | Public |
+| GET | `/api/payments/methods` | Public |
+| POST | `/api/orders/{orderNumber}/payment` | Public, phone verified |
 | GET | `/api/admin/orders` | Admin |
 | GET | `/api/admin/orders/{id}` | Admin |
 | PATCH | `/api/admin/orders/{id}/status` | Admin |
@@ -249,6 +254,5 @@ For field validation, `fields` contains invalid field names and messages.
 mvn test
 ```
 
-The suite currently covers product price/variant stock rules, public filtering,
-order status transitions, mobile payment verification, cancellation validation,
-and pending review creation.
+`mvn verify` also runs checkout, payment, stock, and order-tracking smoke tests against an
+embedded MongoDB instance.
