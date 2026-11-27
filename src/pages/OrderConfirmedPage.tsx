@@ -5,7 +5,7 @@ import { orderService } from '../services/orderService';
 import { settingsService } from '../services/settingsService';
 import { useLanguage } from '../context/LanguageContext';
 import { useToast } from '../context/ToastContext';
-import { formatCurrency } from '../utilities/currency';
+import { formatCurrency, formatNumber } from '../utilities/currency';
 import { Icons } from '../utilities/icons';
 import { Breadcrumb } from '../components/Breadcrumb';
 
@@ -132,7 +132,7 @@ export const OrderConfirmedPage: React.FC = () => {
                         </span>
                       )}
                       <span className="caption-4 text-muted block">
-                        {formatCurrency(item.unitPrice, language)} × {item.quantity}
+                        {formatCurrency(item.unitPrice, language)} × {formatNumber(item.quantity, language)}
                       </span>
                     </div>
                   </div>

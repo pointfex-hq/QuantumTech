@@ -8,7 +8,7 @@ import { orderService, PaymentMethodInfo } from '../services/orderService';
 import { cartService, ServerCartQuote } from '../services/cartService';
 import { settingsService } from '../services/settingsService';
 import { promotionService } from '../services/promotionService';
-import { formatCurrency } from '../utilities/currency';
+import { formatCurrency, formatNumber } from '../utilities/currency';
 import { isValidBangladeshPhone, isValidTrxId, isValidName, isValidAddress } from '../utilities/validation';
 import { Icons } from '../utilities/icons';
 import { DeliveryArea, PaymentMethod, Coupon } from '../types';
@@ -730,7 +730,7 @@ export const CheckoutPage: React.FC = () => {
                         </span>
                       )}
                       <span className="caption-4 text-muted block">
-                        {formatCurrency(item.unitPrice, language)} × {item.quantity}
+                        {formatCurrency(item.unitPrice, language)} × {formatNumber(item.quantity, language)}
                       </span>
                     </div>
                   </div>

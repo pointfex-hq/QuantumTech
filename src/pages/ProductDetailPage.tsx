@@ -14,6 +14,7 @@ import { QuantitySelector } from '../components/QuantitySelector';
 import { ProductCard } from '../components/ProductCard';
 import { EmptyState } from '../components/EmptyState';
 import { Icons } from '../utilities/icons';
+import { formatCurrency, formatDigits, formatNumber } from '../utilities/currency';
 import { ProductVariant, Review, ReviewStats } from '../types';
 
 export const ProductDetailPage: React.FC = () => {
@@ -198,7 +199,7 @@ export const ProductDetailPage: React.FC = () => {
   };
 
   const handleShareWhatsApp = () => {
-    const text = `${productName} (৳${activePrice.toLocaleString()}) - QuantumTech: ${currentUrl}`;
+    const text = `${productName} (${formatCurrency(activePrice, language)}) - QuantumTech: ${currentUrl}`;
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
   };
 
@@ -411,18 +412,18 @@ export const ProductDetailPage: React.FC = () => {
               )}
               {promoBadge ? (
                 <span data-testid="pdp-promo-badge" className="caption-3 px-2.5 py-0.5 rounded bg-error text-white font-bold shadow-sm">
-                  {promoBadge}
+                  {formatDigits(promoBadge, language)}
                 </span>
               ) : discountPercent > 0 ? (
                 <span data-testid="pdp-promo-badge" className="caption-3 px-2.5 py-0.5 rounded bg-error text-white font-semibold shadow-sm">
-                  -{discountPercent}% OFF
+                  -{formatNumber(discountPercent, language)}% OFF
                 </span>
               ) : null}
             </div>
 
             {/* Slide Index Counter Badge */}
             <div className="absolute top-4 right-4 z-10 bg-ink/75 backdrop-blur-md text-white text-xs font-semibold px-2.5 py-1 rounded-full shadow-sm">
-              {selectedImageIndex + 1} / {images.length}
+              {formatNumber(selectedImageIndex + 1, language)} / {formatNumber(images.length, language)}
             </div>
 
             {/* Next / Previous Arrows (Visible on hover and touch devices) */}
@@ -510,12 +511,14 @@ export const ProductDetailPage: React.FC = () => {
             ) : isLowStock ? (
               <span data-testid="stock-indicator" className="caption-3 px-2.5 py-1 rounded-full bg-warning-soft text-warning-dark font-semibold flex items-center gap-1.5">
                 <span className="h-1.5 w-1.5 rounded-full bg-warning animate-pulse" />
-                {language === 'bn' ? `স্টকে মাত্র ${activeStock} টি বাকি` : `Only ${activeStock} left`}
+                {language === 'bn' ? `স্টকে মাত্র ${formatNumber(activeStock, language)} টি বাকি` : `Only ${activeStock} left`}
               </span>
             ) : (
               <span data-testid="stock-indicator" className="caption-3 px-2.5 py-1 rounded-full bg-success-soft text-success-dark font-semibold flex items-center gap-1.5">
                 <span className="h-1.5 w-1.5 rounded-full bg-success" />
-                {t.product.inStock} {selectedVariant ? `(${activeStock} available)` : `(${product.stock} available)`}
+                {language === 'bn'
+                  ? `${t.product.inStock} (${formatNumber(selectedVariant ? activeStock : product.stock, language)} টি উপলব্ধ)`
+                  : `${t.product.inStock} (${selectedVariant ? activeStock : product.stock} available)`}
               </span>
             )}
           </div>
@@ -542,10 +545,10 @@ export const ProductDetailPage: React.FC = () => {
               })}
             </div>
             <span className="title-4 font-bold text-ink">
-              {(reviewStats.totalCount > 0 ? reviewStats.averageRating : product.rating).toFixed(1)}
+              {formatNumber((reviewStats.totalCount > 0 ? reviewStats.averageRating : product.rating).toFixed(1), language)}
             </span>
             <span className="caption-2 text-muted">
-              ({reviewStats.totalCount > 0 ? reviewStats.totalCount : product.reviewsCount}{' '}
+              ({formatNumber(reviewStats.totalCount > 0 ? reviewStats.totalCount : product.reviewsCount, language)}{' '}
               {language === 'bn' ? 'টি অনুমোদিত রিভিউ' : 'verified reviews'})
             </span>
           </div>
@@ -567,8 +570,8 @@ export const ProductDetailPage: React.FC = () => {
               {discountAmount > 0 && (
                 <span className="caption-2 font-semibold text-error bg-error-soft px-2.5 py-1 rounded-lg">
                   {language === 'bn'
-                    ? `৳${discountAmount.toLocaleString('en-IN')} সাশ্রয় (-${discountPercent}%)`
-                    : `Save ৳${discountAmount.toLocaleString('en-IN')} (-${discountPercent}%)`}
+                    ? `${formatCurrency(discountAmount, language)} সাশ্রয় (-${formatNumber(discountPercent, language)}%)`
+                    : `Save ${formatCurrency(discountAmount, language)} (-${formatNumber(discountPercent, language)}%)`}
                 </span>
               )}
             </div>
@@ -598,7 +601,7 @@ export const ProductDetailPage: React.FC = () => {
                     }`}>
                       {selectedVariant.stock <= 0
                         ? (language === 'bn' ? 'স্টক শেষ' : 'Out of Stock')
-                        : (language === 'bn' ? `স্টক: ${selectedVariant.stock}` : `Stock: ${selectedVariant.stock}`)}
+                        : (language === 'bn' ? `স্টক: ${formatNumber(selectedVariant.stock, language)}` : `Stock: ${selectedVariant.stock}`)}
                     </span>
                   </span>
                 )}
@@ -631,7 +634,7 @@ export const ProductDetailPage: React.FC = () => {
                         const vPromo = promotionService.calculateProductPrice(product, v.id);
                         return (
                           <span className="caption-4 ml-1 opacity-90">
-                            (৳{vPromo.finalPrice.toLocaleString('en-IN')})
+                            ({formatCurrency(vPromo.finalPrice, language)})
                           </span>
                         );
                       })()}
@@ -662,7 +665,7 @@ export const ProductDetailPage: React.FC = () => {
               <FontAwesomeIcon icon={Icons.warning} className="h-4 w-4 flex-shrink-0" />
               <span>
                 {language === 'bn'
-                  ? `স্টকে মাত্র ${activeStock} টি পণ্য বাকি আছে! দ্রুত অর্ডার সম্পন্ন করুন।`
+                  ? `স্টকে মাত্র ${formatNumber(activeStock, language)} টি পণ্য বাকি আছে! দ্রুত অর্ডার সম্পন্ন করুন।`
                   : `Hurry! Only ${activeStock} units available in stock. Order now before it runs out.`}
               </span>
             </div>
@@ -868,9 +871,9 @@ export const ProductDetailPage: React.FC = () => {
                     </span>
                     <div className="flex items-baseline gap-2">
                       <span className="heading-2 font-extrabold text-ink">
-                        {(reviewStats.totalCount > 0 ? reviewStats.averageRating : product.rating).toFixed(1)}
+                        {formatNumber((reviewStats.totalCount > 0 ? reviewStats.averageRating : product.rating).toFixed(1), language)}
                       </span>
-                      <span className="title-3 text-muted font-bold">/ 5.0</span>
+                      <span className="title-3 text-muted font-bold">/ {formatNumber('5.0', language)}</span>
                     </div>
 
                     <div className="flex text-amber-400 text-base my-2">
@@ -890,7 +893,7 @@ export const ProductDetailPage: React.FC = () => {
 
                     <p className="caption-2 text-muted">
                       {language === 'bn'
-                        ? `${reviewStats.totalCount} টি অনুমোদিত গ্রাহক পর্যালোচনার ভিত্তিতে`
+                        ? `${formatNumber(reviewStats.totalCount, language)} টি অনুমোদিত গ্রাহক পর্যালোচনার ভিত্তিতে`
                         : `Based on ${reviewStats.totalCount} approved customer review${reviewStats.totalCount === 1 ? '' : 's'}`}
                     </p>
 
@@ -910,7 +913,7 @@ export const ProductDetailPage: React.FC = () => {
                       return (
                         <div key={star} className="flex items-center gap-3 text-xs">
                           <span className="w-12 font-semibold text-slate-700 whitespace-nowrap">
-                            {star} {language === 'bn' ? 'স্টার' : star === 1 ? 'Star' : 'Stars'}
+                            {formatNumber(star, language)} {language === 'bn' ? 'স্টার' : star === 1 ? 'Star' : 'Stars'}
                           </span>
                           <div className="flex-1 h-3 bg-surface-muted rounded-full overflow-hidden border border-border/40">
                             <div
@@ -919,7 +922,7 @@ export const ProductDetailPage: React.FC = () => {
                             />
                           </div>
                           <div className="w-14 text-right caption-4 text-muted font-medium tabular-nums">
-                            {count} ({percentage}%)
+                            {formatNumber(count, language)} ({formatNumber(percentage, language)}%)
                           </div>
                         </div>
                       );
@@ -1126,7 +1129,7 @@ export const ProductDetailPage: React.FC = () => {
             {language === 'bn' ? 'মোট মূল্য' : 'Total Price'}
           </span>
           <span className="title-3 font-bold text-ink">
-            ৳{(activePrice * quantity).toLocaleString('en-IN')}
+            {formatCurrency(activePrice * quantity, language)}
           </span>
         </div>
 

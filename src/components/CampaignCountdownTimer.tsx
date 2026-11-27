@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { useLanguage } from '../context/LanguageContext';
 import { Icons } from '../utilities/icons';
+import { formatNumber } from '../utilities/currency';
 
 interface CampaignCountdownTimerProps {
   targetDate: string; // ISO date string
@@ -15,6 +17,16 @@ export const CampaignCountdownTimer: React.FC<CampaignCountdownTimerProps> = ({
   className = '',
   onExpire,
 }) => {
+  const { language } = useLanguage();
+  const formatTimeUnit = (value: number) =>
+    formatNumber(value, language).padStart(2, language === 'bn' ? '০' : '0');
+  const timeLabels = language === 'bn'
+    ? { days: 'দিন', hours: 'ঘণ্টা', minutes: 'মিনিট', seconds: 'সেকেন্ড' }
+    : { days: 'd', hours: 'h', minutes: 'm', seconds: 's' };
+  const labelClassName = `caption-5 text-ink/70 ${
+    language === 'bn' ? 'font-medium' : 'text-[9px] font-sans uppercase'
+  }`;
+
   const calculateTimeLeft = () => {
     const diff = new Date(targetDate).getTime() - new Date().getTime();
     if (diff <= 0) {
@@ -57,23 +69,23 @@ export const CampaignCountdownTimer: React.FC<CampaignCountdownTimerProps> = ({
       )}
       <div className="flex items-center gap-1.5 font-mono text-xs font-bold tabular-nums text-ink">
         <div className="flex flex-col items-center bg-surface-muted px-2 py-1 rounded-lg border border-border shadow-2xs min-w-[36px]">
-          <span>{String(timeLeft.days).padStart(2, '0')}</span>
-          <span className="caption-5 text-[9px] text-ink/70 font-sans uppercase">d</span>
+          <span>{formatTimeUnit(timeLeft.days)}</span>
+          <span className={labelClassName}>{timeLabels.days}</span>
         </div>
         <span className="text-ink/70 font-bold">:</span>
         <div className="flex flex-col items-center bg-surface-muted px-2 py-1 rounded-lg border border-border shadow-2xs min-w-[36px]">
-          <span>{String(timeLeft.hours).padStart(2, '0')}</span>
-          <span className="caption-5 text-[9px] text-ink/70 font-sans uppercase">h</span>
+          <span>{formatTimeUnit(timeLeft.hours)}</span>
+          <span className={labelClassName}>{timeLabels.hours}</span>
         </div>
         <span className="text-ink/70 font-bold">:</span>
         <div className="flex flex-col items-center bg-surface-muted px-2 py-1 rounded-lg border border-border shadow-2xs min-w-[36px]">
-          <span>{String(timeLeft.minutes).padStart(2, '0')}</span>
-          <span className="caption-5 text-[9px] text-ink/70 font-sans uppercase">m</span>
+          <span>{formatTimeUnit(timeLeft.minutes)}</span>
+          <span className={labelClassName}>{timeLabels.minutes}</span>
         </div>
         <span className="text-ink/70 font-bold">:</span>
         <div className="flex flex-col items-center bg-surface-muted px-2 py-1 rounded-lg border border-border shadow-2xs min-w-[36px]">
-          <span>{String(timeLeft.seconds).padStart(2, '0')}</span>
-          <span className="caption-5 text-[9px] text-ink/70 font-sans uppercase">s</span>
+          <span>{formatTimeUnit(timeLeft.seconds)}</span>
+          <span className={labelClassName}>{timeLabels.seconds}</span>
         </div>
       </div>
     </div>

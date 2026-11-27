@@ -503,7 +503,7 @@ export const TrackOrderPage: React.FC = () => {
                         </span>
                       )}
                       <span className="caption-4 text-muted block">
-                        {formatCurrency(item.unitPrice, language)} × {item.quantity}
+                        {formatCurrency(item.unitPrice, language)} × {formatNumber(item.quantity, language)}
                       </span>
                     </div>
                   </div>

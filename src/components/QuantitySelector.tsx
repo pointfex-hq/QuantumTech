@@ -1,6 +1,8 @@
 import React from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { useLanguage } from '../context/LanguageContext';
 import { Icons } from '../utilities/icons';
+import { formatNumber } from '../utilities/currency';
 
 interface QuantitySelectorProps {
   quantity: number;
@@ -19,6 +21,8 @@ export const QuantitySelector: React.FC<QuantitySelectorProps> = ({
   disabled = false,
   className = '',
 }) => {
+  const { language } = useLanguage();
+
   const handleDecrement = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (quantity > min && !disabled) {
@@ -53,7 +57,7 @@ export const QuantitySelector: React.FC<QuantitySelectorProps> = ({
         className="flex h-11 min-w-[36px] items-center justify-center px-2 title-4 text-ink font-medium select-none"
         aria-live="polite"
       >
-        {quantity}
+        {formatNumber(quantity, language)}
       </span>
 
       <button
