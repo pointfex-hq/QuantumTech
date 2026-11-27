@@ -62,6 +62,10 @@ public class PromotionService {
         return campaign;
     }
 
+    public Campaign campaignById(String id) {
+        return campaigns.findById(id).orElseThrow(() -> notFound("Campaign not found"));
+    }
+
     public Campaign saveCampaign(Campaign campaign) {
         if (campaign.getName() == null || campaign.getName().isBlank()
                 || campaign.getOccasion() == null || campaign.getOccasion().isBlank()
@@ -130,6 +134,10 @@ public class PromotionService {
         popups.deleteById(id);
     }
 
+    public PromotionalPopup popupById(String id) {
+        return popups.findById(id).orElseThrow(() -> notFound("Popup not found"));
+    }
+
     public List<ProductDiscount> discounts(boolean activeOnly) {
         Instant now = Instant.now();
         return discounts.findAll().stream()
@@ -139,12 +147,17 @@ public class PromotionService {
                 .toList();
     }
 
+    public ProductDiscount discountById(String id) {
+        return discounts.findById(id).orElseThrow(() -> notFound("Discount not found"));
+    }
+
     public PriceResult calculateProductPrice(Product product, String variantId) {
         double basePrice = product.getPrice();
         if (variantId != null && product.getVariants() != null) {
             basePrice = product.getVariants().stream()
                     .filter(variant -> variantId.equals(variant.getId()))
-                    .mapToDouble(ProductVariant::getPrice)
+                    .mapToDouble(variant -> variant.getPrice() > 0
+                            ? variant.getPrice() : product.getPrice())
                     .findFirst()
                     .orElse(basePrice);
         }
@@ -248,6 +261,10 @@ public class PromotionService {
 
     public List<Coupon> coupons() {
         return coupons.findAll();
+    }
+
+    public Coupon couponById(String id) {
+        return coupons.findById(id).orElseThrow(() -> notFound("Coupon not found"));
     }
 
     public Coupon saveCoupon(Coupon coupon) {

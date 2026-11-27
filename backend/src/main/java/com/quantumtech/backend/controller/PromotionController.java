@@ -36,6 +36,11 @@ public class PromotionController {
         return promotions.campaigns(false);
     }
 
+    @GetMapping("/admin/campaigns/{id}")
+    public Campaign campaignById(@PathVariable String id) {
+        return promotions.campaignById(id);
+    }
+
     @PostMapping("/admin/campaigns")
     @ResponseStatus(HttpStatus.CREATED)
     public Campaign createCampaign(@Valid @RequestBody Campaign campaign) {
@@ -63,6 +68,11 @@ public class PromotionController {
     @GetMapping("/admin/popups")
     public List<PromotionalPopup> allPopups() {
         return promotions.popups(false);
+    }
+
+    @GetMapping("/admin/popups/{id}")
+    public PromotionalPopup popupById(@PathVariable String id) {
+        return promotions.popupById(id);
     }
 
     @PostMapping("/admin/popups")
@@ -95,6 +105,11 @@ public class PromotionController {
         return promotions.discounts(false);
     }
 
+    @GetMapping("/admin/discounts/{id}")
+    public ProductDiscount discountById(@PathVariable String id) {
+        return promotions.discountById(id);
+    }
+
     @PostMapping("/admin/discounts")
     @ResponseStatus(HttpStatus.CREATED)
     public ProductDiscount createDiscount(@Valid @RequestBody ProductDiscount discount) {
@@ -118,6 +133,11 @@ public class PromotionController {
     @GetMapping("/admin/coupons")
     public List<Coupon> allCoupons() {
         return promotions.coupons();
+    }
+
+    @GetMapping("/admin/coupons/{id}")
+    public Coupon couponById(@PathVariable String id) {
+        return promotions.couponById(id);
     }
 
     @PostMapping("/admin/coupons")
