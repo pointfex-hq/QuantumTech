@@ -8,13 +8,14 @@ import {
   CalculatedPriceResult,
   AnalyticsEventType,
 } from '../types/promotions';
-import { Product, CartItem, ProductVariant } from '../types';
+import { Product, CartItem, ProductVariant, Order } from '../types';
 import {
   initialCampaigns,
   initialPopups,
   initialDiscounts,
   initialCoupons,
 } from '../data/mockPromotions';
+import { initialOrders } from '../data/mockData';
 import { getItem, setItem, STORAGE_KEYS } from '../utilities/storage';
 
 export const promotionService = {
@@ -445,6 +446,34 @@ export const promotionService = {
     );
   },
 
+  getLifetimeDeliveredItemCount(phone: string): number {
+    const cleanPhone = phone.replace(/[\s-]/g, '');
+    if (!cleanPhone) return 0;
+    const orders = getItem<Order[]>(STORAGE_KEYS.ORDERS, initialOrders);
+    return orders
+      .filter((order) =>
+        order.status === 'Delivered' &&
+        order.phone.replace(/[\s-]/g, '') === cleanPhone
+      )
+      .reduce(
+        (total, order) => total + order.items.reduce((count, item) => count + item.quantity, 0),
+        0
+      );
+  },
+
+  getEligibleCustomerOffers(phone: string): Coupon[] {
+    const now = Date.now();
+    const deliveredItems = this.getLifetimeDeliveredItemCount(phone);
+    return this.getAllCoupons().filter((coupon) =>
+      coupon.isActive &&
+      coupon.minLifetimeDeliveredItems !== undefined &&
+      coupon.minLifetimeDeliveredItems <= deliveredItems &&
+      new Date(coupon.startDate).getTime() <= now &&
+      new Date(coupon.endDate).getTime() >= now &&
+      coupon.usedCount < coupon.usageLimit
+    );
+  },
+
   saveCoupon(coupon: Coupon): Coupon {
     const all = this.getAllCoupons();
     const idx = all.findIndex((c) => c.id === coupon.id || c.code.toUpperCase() === coupon.code.toUpperCase());
@@ -502,6 +531,20 @@ export const promotionService = {
 
     if (coupon.usedCount >= coupon.usageLimit) {
       return { valid: false, discountAmount: 0, error: 'This coupon has reached its maximum total redemption limit.' };
+    }
+
+    if (coupon.minLifetimeDeliveredItems !== undefined) {
+      if (!customerPhone) {
+        return { valid: false, discountAmount: 0, error: 'Enter the phone number on your customer account to use this offer.' };
+      }
+      const purchasedItems = this.getLifetimeDeliveredItemCount(customerPhone);
+      if (purchasedItems < coupon.minLifetimeDeliveredItems) {
+        return {
+          valid: false,
+          discountAmount: 0,
+          error: `This offer is for customers with at least ${coupon.minLifetimeDeliveredItems} delivered items. Your qualifying total is ${purchasedItems}.`,
+        };
+      }
     }
 
     // Check per-customer limit if phone is provided

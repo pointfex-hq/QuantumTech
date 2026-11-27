@@ -126,6 +126,8 @@ export interface ProductDiscount {
 export interface Coupon {
   id: string;
   code: string;
+  offerTitle?: string;
+  minLifetimeDeliveredItems?: number;
   discountType: 'percentage' | 'fixed';
   discountValue: number;
   minimumOrderValue?: number;

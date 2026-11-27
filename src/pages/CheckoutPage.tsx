@@ -8,6 +8,7 @@ import { orderService, PaymentMethodInfo } from '../services/orderService';
 import { cartService, ServerCartQuote } from '../services/cartService';
 import { settingsService } from '../services/settingsService';
 import { promotionService } from '../services/promotionService';
+import { customerAccountService } from '../services/customerAccountService';
 import { formatCurrency } from '../utilities/currency';
 import { isValidBangladeshPhone, isValidTrxId, isValidName, isValidAddress } from '../utilities/validation';
 import { Icons } from '../utilities/icons';
@@ -41,6 +42,15 @@ export const CheckoutPage: React.FC = () => {
   const [couponDiscount, setCouponDiscount] = useState<number>(0);
   const [couponError, setCouponError] = useState<string>('');
   const [couponSuccess, setCouponSuccess] = useState<string>('');
+
+  useEffect(() => {
+    const customer = customerAccountService.getSession();
+    if (!customer) return;
+    setFullName(customer.name);
+    setPhone(customer.phone);
+    if (customer.area) setArea(customer.area);
+    if (customer.address) setAddress(customer.address);
+  }, []);
 
   useEffect(() => {
     const handleSync = () => setStoreSettings(settingsService.getSettings());

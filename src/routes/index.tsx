@@ -16,6 +16,7 @@ import { PromotionalLandingPage } from '../pages/PromotionalLandingPage';
 import { AboutPage } from '../pages/AboutPage';
 import { ContactPage } from '../pages/ContactPage';
 import { PoliciesPage } from '../pages/PoliciesPage';
+import { CustomerAccountPage } from '../pages/CustomerAccountPage';
 import { NotFoundPage } from '../pages/NotFoundPage';
 
 import { AdminLoginPage } from '../pages/admin/AdminLoginPage';
@@ -49,6 +50,7 @@ export const AppRoutes: React.FC = () => {
         <Route path="/order-confirmation/:id" element={<OrderConfirmedPage />} />
         <Route path="/order-confirmation/:orderNumber" element={<OrderConfirmedPage />} />
         <Route path="/track-order" element={<TrackOrderPage />} />
+        <Route path="/account" element={<CustomerAccountPage />} />
         <Route path="/about" element={<AboutPage />} />
         <Route path="/contact" element={<ContactPage />} />
         <Route path="/policies" element={<PoliciesPage />} />

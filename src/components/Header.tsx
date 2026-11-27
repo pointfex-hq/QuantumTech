@@ -148,11 +148,11 @@ export const Header: React.FC = () => {
           </div>
 
           {/* Center: Desktop Navigation with Categories Dropdown */}
-          <nav className="hidden lg:flex items-center gap-1 xl:gap-2">
+          <nav className="hidden lg:flex flex-shrink-0 items-center gap-0 xl:gap-1">
             <NavLink
               to="/"
               className={({ isActive }) =>
-                `px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                `whitespace-nowrap px-2 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                   isActive
                     ? 'text-quantum font-semibold bg-quantum-soft'
                     : 'text-ink hover:text-quantum hover:bg-surface-alt'
@@ -165,7 +165,7 @@ export const Header: React.FC = () => {
             <NavLink
               to="/shop"
               className={({ isActive }) =>
-                `px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                `whitespace-nowrap px-2 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                   isActive
                     ? 'text-quantum font-semibold bg-quantum-soft'
                     : 'text-ink hover:text-quantum hover:bg-surface-alt'
@@ -180,7 +180,7 @@ export const Header: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setCategoriesDropdownOpen(!categoriesDropdownOpen)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                className={`flex items-center gap-1.5 whitespace-nowrap px-2 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                   categoriesDropdownOpen
                     ? 'text-quantum bg-quantum-soft font-semibold'
                     : 'text-ink hover:text-quantum hover:bg-surface-alt'
@@ -242,7 +242,7 @@ export const Header: React.FC = () => {
             <NavLink
               to="/track-order"
               className={({ isActive }) =>
-                `px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                `whitespace-nowrap px-2 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                   isActive
                     ? 'text-quantum font-semibold bg-quantum-soft'
                     : 'text-ink hover:text-quantum hover:bg-surface-alt'
@@ -255,7 +255,7 @@ export const Header: React.FC = () => {
             <NavLink
               to="/about"
               className={({ isActive }) =>
-                `px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                `whitespace-nowrap px-2 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                   isActive
                     ? 'text-quantum font-semibold bg-quantum-soft'
                     : 'text-ink hover:text-quantum hover:bg-surface-alt'
@@ -268,7 +268,7 @@ export const Header: React.FC = () => {
             <NavLink
               to="/contact"
               className={({ isActive }) =>
-                `px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                `whitespace-nowrap px-2 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                   isActive
                     ? 'text-quantum font-semibold bg-quantum-soft'
                     : 'text-ink hover:text-quantum hover:bg-surface-alt'
@@ -317,6 +317,20 @@ export const Header: React.FC = () => {
                 বাং
               </span>
             </button>
+
+            {/* Customer account entry point */}
+            <Link
+              to="/account"
+              className="hidden md:flex h-10 sm:h-11 min-h-[40px] items-center justify-center gap-2 px-2.5 sm:px-3 rounded-lg border border-border bg-surface text-ink hover:border-quantum/40 hover:text-quantum transition-colors active:scale-95"
+              aria-label={t.nav.account}
+              title={t.nav.account}
+              data-testid="desktop-account-link"
+            >
+              <FontAwesomeIcon icon={Icons.user} className="h-3.5 w-3.5" />
+              <span className="hidden xl:inline text-xs font-semibold whitespace-nowrap">
+                {t.nav.account}
+              </span>
+            </Link>
 
             {/* Shopping Cart Button (40px min touch target) */}
             <button
@@ -489,6 +503,21 @@ export const Header: React.FC = () => {
                 >
                   <FontAwesomeIcon icon={Icons.delivery} className="h-4 w-4" />
                   <span>{t.nav.trackOrder}</span>
+                </NavLink>
+
+                <NavLink
+                  to="/account"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className={({ isActive }) =>
+                    `flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                      isActive
+                        ? 'bg-quantum text-white font-semibold shadow-xs'
+                        : 'text-ink hover:bg-surface-muted hover:text-quantum'
+                    }`
+                  }
+                >
+                  <FontAwesomeIcon icon={Icons.user} className="h-4 w-4" />
+                  <span>{t.nav.account}</span>
                 </NavLink>
 
                 <NavLink
