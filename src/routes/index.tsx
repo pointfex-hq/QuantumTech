@@ -16,6 +16,7 @@ import { PromotionalLandingPage } from '../pages/PromotionalLandingPage';
 import { AboutPage } from '../pages/AboutPage';
 import { ContactPage } from '../pages/ContactPage';
 import { PoliciesPage } from '../pages/PoliciesPage';
+import { CustomerAccountPage } from '../pages/CustomerAccountPage';
 import { NotFoundPage } from '../pages/NotFoundPage';
 
 import { AdminLoginPage } from '../pages/admin/AdminLoginPage';
@@ -32,6 +33,7 @@ import { AdminDiscountsPage } from '../pages/admin/AdminDiscountsPage';
 import { AdminCouponsPage } from '../pages/admin/AdminCouponsPage';
 import { AdminCampaignAnalyticsPage } from '../pages/admin/AdminCampaignAnalyticsPage';
 import { AdminSettingsPage } from '../pages/admin/AdminSettingsPage';
+import { AdminCustomersPage } from '../pages/admin/AdminCustomersPage';
 
 export const AppRoutes: React.FC = () => {
   return (
@@ -49,6 +51,7 @@ export const AppRoutes: React.FC = () => {
         <Route path="/order-confirmation/:id" element={<OrderConfirmedPage />} />
         <Route path="/order-confirmation/:orderNumber" element={<OrderConfirmedPage />} />
         <Route path="/track-order" element={<TrackOrderPage />} />
+        <Route path="/account" element={<CustomerAccountPage />} />
         <Route path="/about" element={<AboutPage />} />
         <Route path="/contact" element={<ContactPage />} />
         <Route path="/policies" element={<PoliciesPage />} />
@@ -67,6 +70,7 @@ export const AppRoutes: React.FC = () => {
         <Route path="dashboard" element={<AdminDashboardPage />} />
         <Route path="orders" element={<AdminOrdersPage />} />
         <Route path="orders/:id" element={<AdminOrderDetailPage />} />
+        <Route path="customers" element={<AdminCustomersPage />} />
         <Route path="products" element={<AdminProductsPage />} />
         <Route path="products/new" element={<AdminProductFormPage isEdit={false} />} />
         <Route path="products/:id/edit" element={<AdminProductFormPage isEdit={true} />} />

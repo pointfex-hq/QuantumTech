@@ -34,7 +34,7 @@ export const authService = {
   },
 
   getRememberedEmail(): string {
-    return getItem<string>(REMEMBERED_EMAIL_KEY, 'admin@quantumtech.com');
+    return getItem<string>(REMEMBERED_EMAIL_KEY, '');
   },
 
   setRememberedEmail(email: string): void {
@@ -58,7 +58,7 @@ export const authService = {
       };
     }
 
-    let email = 'admin@quantumtech.com';
+    let email = '';
     let password = '';
 
     if (passwordArg !== undefined) {
@@ -96,35 +96,15 @@ export const authService = {
       await refreshAdminCatalog().catch(() => undefined);
       return { success: true, session };
     } catch (error) {
-      // If error is an actual authentication error from backend (HTTP 400, 401, 423 Locked)
       if (error instanceof ApiError) {
         const message = error.message || 'Invalid administrator email or password.';
         const locked = error.status === 423 || message.toLowerCase().includes('locked');
         return { success: false, isLocked: locked, error: message };
       }
-      // If network is completely unreachable, fall back to offline demo mode
-    }
-
-    // Supported demo passwords
-    if (password === 'admin123' || password === 'quantum2026') {
-      const session: AdminSession = {
-        email: email || 'irfan.shahil@quantumtech.com',
-        name: 'Irfan Khan Shahil',
-        role: 'Owner',
-        loginTime: now,
-        rememberMe,
+      return {
+        success: false,
+        error: 'Unable to reach the authentication service. Please try again.',
       };
-
-      setItem(STORAGE_KEYS.ADMIN_SESSION, session);
-      setItem(FAILED_ATTEMPTS_KEY, 0);
-      removeItem(LOCKED_UNTIL_KEY);
-
-      if (rememberMe) {
-        this.setRememberedEmail(email);
-      }
-
-      window.dispatchEvent(new Event('quantum_auth_updated'));
-      return { success: true, session };
     }
 
     // Handle failed login attempt

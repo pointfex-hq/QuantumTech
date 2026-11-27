@@ -25,7 +25,7 @@ QuantumTech is a modern, high-performance, responsive e-commerce web application
   - [Production Build](#production-build)
 - [Testing & Quality Assurance](#testing--quality-assurance)
 - [Design System & UI Guidelines](#design-system--ui-guidelines)
-- [Default Admin Credentials](#default-admin-credentials)
+- [Admin Login](#admin-login)
 - [License](#license)
 
 ---
@@ -288,12 +288,10 @@ QuantumTech strictly adheres to high-conversion modern e-commerce UX guidelines:
 
 ---
 
-## Default Admin Credentials
+## Admin Login
 
-To access the Admin Portal (`/admin` or `/admin/login`):
-
-- **Email**: `admin@quantumtech.com`
-- **Password**: `admin123`
+Admin credentials are configured through the backend environment or the ignored local
+profile at `backend/src/main/resources/application-local.properties`. Do not commit credentials.
 
 ---
 

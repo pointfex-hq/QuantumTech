@@ -12,19 +12,14 @@
 - **Backend:** Java 21 (`/usr/lib/jvm/java-21-openjdk-amd64`), Spring Boot 3.4.1, Spring Data MongoDB, Spring Security (JWT) (runs on `http://localhost:8080`)
 - **Database:** MongoDB Atlas (Cloud)
   - Database Name: `qtechdb`
-  - Host: `cluster0.ekcgb3l.mongodb.net`
-  - Auth Config: Configured in `backend/.env` and `application.properties`
+  - Configure the URI locally or through the deployment secret manager; do not commit credentials.
 - **Maven Location:** `/home/sakib/.local/bin/mvn` (`/home/sakib/.tools/apache-maven-3.9.9/bin/mvn`)
 
 ### Environment Files
-1. **`backend/.env`**:
-   - `MONGODB_URI`: Configured with MongoDB Atlas credentials
-   - `MONGODB_DATABASE`: `qtechdb`
-   - `PORT`: `8080`
-   - `JWT_SECRET`: Configured for token signing
-   - `ADMIN_EMAIL`: `admin@quantumtech.com`
-   - `ADMIN_PASSWORD`: `admin123`
-2. **`/.env` (Root Frontend)**:
+1. **Backend:** Use the ignored `application-local.properties` with the `local` Spring profile,
+   or supply deployment values through environment variables. `backend/.env` is ignored and
+   only sourced by `backend/run.sh`; never commit it.
+2. **`/.env` (Root Frontend):**
    - `VITE_API_URL=http://localhost:8080`
 
 ---
@@ -50,7 +45,8 @@
 
 ### Running Backend:
 ```bash
-./backend/run.sh
+cd backend
+SPRING_PROFILES_ACTIVE=local mvn spring-boot:run
 ```
 Or directly via npm shortcut:
 ```bash
@@ -79,10 +75,11 @@ Generates production-ready bundle in `/dist`.
 
 ---
 
-## 4. Default Credentials & Test Data
+## 4. Credentials & Test Data
 
-- **Admin Email:** `admin@quantumtech.com`
-- **Admin Password:** `admin123`
+- Admin credentials come from `ADMIN_EMAIL` and `ADMIN_PASSWORD`; for local development use
+  the values in `backend/src/main/resources/application-local.properties`. Set the
+  `adminEmail` and `adminPassword` Postman collection variables before running API requests.
 - **Customer Checkout Test Phone:** `01712345678` (Valid 11-digit Bangladeshi mobile number)
 - **Supported Payment Methods:** `COD`, `bKash`, `Nagad`
 - **Delivery Zones:**

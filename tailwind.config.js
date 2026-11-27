@@ -45,9 +45,9 @@ export default {
           dark: '#15803D',
         },
         error: {
-          DEFAULT: '#DC2626',
-          soft: '#FEE2E2',
-          dark: '#B91C1C',
+          DEFAULT: withAlpha('--color-error'),
+          soft: withAlpha('--color-error-soft'),
+          dark: withAlpha('--color-error-dark'),
         },
         warning: {
           DEFAULT: '#D97706',

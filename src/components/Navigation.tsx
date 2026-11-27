@@ -37,7 +37,7 @@ export const Navigation: React.FC<NavigationProps> = ({
             onClick={onItemClick}
             style={{ animationDelay: `${idx * 50}ms` }}
             className={({ isActive }) =>
-              `flex items-center gap-3.5 px-4 py-3 rounded-xl title-3 transition-all duration-300 ${
+              `flex items-center gap-3.5 whitespace-nowrap px-4 py-3 rounded-xl title-3 transition-all duration-300 ${
                 isActive
                   ? 'bg-quantum text-white font-semibold shadow-sm'
                   : 'text-ink hover:bg-surface-muted hover:text-quantum'
@@ -59,7 +59,7 @@ export const Navigation: React.FC<NavigationProps> = ({
           key={link.to}
           to={link.to}
           className={({ isActive }) =>
-            `px-3 py-2 rounded-lg text-sm transition-all duration-300 font-medium ${
+            `whitespace-nowrap px-2 py-2 rounded-lg text-sm transition-all duration-300 font-medium ${
               isActive
                 ? 'bg-quantum-soft text-quantum font-semibold'
                 : 'text-ink hover:text-quantum hover:bg-surface-alt'

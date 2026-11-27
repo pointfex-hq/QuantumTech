@@ -27,6 +27,7 @@ export const AdminLayout: React.FC = () => {
     { to: '/admin/products', label: t.admin.nav.products, icon: Icons.package },
     { to: '/admin/categories', label: t.admin.nav.categories, icon: Icons.category },
     { to: '/admin/orders', label: t.admin.nav.orders, icon: Icons.order },
+    { to: '/admin/customers', label: t.admin.nav.customers, icon: Icons.user },
     { to: '/admin/reviews', label: t.admin.nav.reviews, icon: Icons.reviews },
     { to: '/admin/campaigns', label: t.admin.nav.campaigns, icon: Icons.campaign },
     { to: '/admin/popups', label: t.admin.nav.popups, icon: Icons.popup },

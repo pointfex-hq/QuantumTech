@@ -4,6 +4,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { orderService } from '../../services/orderService';
 import { productService } from '../../services/productService';
 import { reviewService } from '../../services/reviewService';
+import { customerAccountService } from '../../services/customerAccountService';
 import { useLanguage } from '../../context/LanguageContext';
 import { Icons } from '../../utilities/icons';
 import { formatCurrency, formatNumber } from '../../utilities/currency';
@@ -13,6 +14,7 @@ export const AdminDashboardPage: React.FC = () => {
   const [orders, setOrders] = useState(() => orderService.getOrders());
   const [products, setProducts] = useState(() => productService.getAllProductsAdmin());
   const [reviews, setReviews] = useState(() => reviewService.getAllReviewsAdmin());
+  const [customers, setCustomers] = useState(() => customerAccountService.getCustomers());
 
   // Listen for product and order updates
   useEffect(() => {
@@ -20,12 +22,15 @@ export const AdminDashboardPage: React.FC = () => {
       setProducts(productService.getAllProductsAdmin());
       setOrders(orderService.getOrders());
       setReviews(reviewService.getAllReviewsAdmin());
+      setCustomers(customerAccountService.getCustomers());
     };
     window.addEventListener('quantum_products_updated', handleUpdate);
     window.addEventListener('quantum_orders_updated', handleUpdate);
+    window.addEventListener('quantum_customer_updated', handleUpdate);
     return () => {
       window.removeEventListener('quantum_products_updated', handleUpdate);
       window.removeEventListener('quantum_orders_updated', handleUpdate);
+      window.removeEventListener('quantum_customer_updated', handleUpdate);
     };
   }, []);
 
@@ -38,6 +43,7 @@ export const AdminDashboardPage: React.FC = () => {
   const cancelledOrders = orders.filter(o => o.status === 'Cancelled');
   const pendingReviews = reviews.filter(r => r.status === 'Pending');
   const lowStockProducts = products.filter(p => p.stock <= 5);
+  const blockedCustomers = customers.filter((customer) => customer.status === 'Blocked');
 
   const totalRevenue = orders
     .filter(o => o.status !== 'Cancelled')
@@ -252,6 +258,42 @@ export const AdminDashboardPage: React.FC = () => {
             </span>
           </div>
         </div>
+
+        {/* 9. Total Customers */}
+        <Link to="/admin/customers" className="p-4 sm:p-5 rounded-2xl bg-surface border border-border shadow-xs flex flex-col justify-between hover:border-quantum/40 transition-colors">
+          <div className="flex items-center justify-between">
+            <span className="caption-4 font-semibold uppercase text-muted tracking-wider">
+              {language === 'bn' ? 'মোট গ্রাহক' : 'Total Customers'}
+            </span>
+            <div className="h-9 w-9 rounded-xl bg-quantum-soft text-quantum flex items-center justify-center">
+              <FontAwesomeIcon icon={Icons.user} className="h-4 w-4" />
+            </div>
+          </div>
+          <div className="mt-3">
+            <span className="heading-4 sm:heading-3 font-bold text-ink block">{formatNumber(customers.length, language)}</span>
+            <span className="caption-5 text-muted block mt-0.5">
+              {language === 'bn' ? 'নিবন্ধিত গ্রাহক অ্যাকাউন্ট' : 'Registered customer accounts'}
+            </span>
+          </div>
+        </Link>
+
+        {/* 10. Blocked Customers */}
+        <Link to="/admin/customers" className="p-4 sm:p-5 rounded-2xl bg-surface border border-border shadow-xs flex flex-col justify-between hover:border-error/40 transition-colors">
+          <div className="flex items-center justify-between">
+            <span className="caption-4 font-semibold uppercase text-muted tracking-wider">
+              {language === 'bn' ? 'ব্লক করা গ্রাহক' : 'Blocked Customers'}
+            </span>
+            <div className="h-9 w-9 rounded-xl bg-error-soft text-error flex items-center justify-center">
+              <FontAwesomeIcon icon={Icons.lock} className="h-4 w-4" />
+            </div>
+          </div>
+          <div className="mt-3">
+            <span className="heading-4 sm:heading-3 font-bold text-error block">{formatNumber(blockedCustomers.length, language)}</span>
+            <span className="caption-5 text-muted block mt-0.5">
+              {language === 'bn' ? 'নিষ্ক্রিয় গ্রাহক অ্যাকাউন্ট' : 'Disabled customer accounts'}
+            </span>
+          </div>
+        </Link>
       </div>
 
       {/* Meaningful Visual: Order Status Distribution & Low-Stock Alerts */}

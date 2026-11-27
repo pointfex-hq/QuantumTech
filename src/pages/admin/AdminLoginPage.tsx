@@ -11,7 +11,7 @@ import { ThemeToggle } from '../../components/ThemeToggle';
 export const AdminLoginPage: React.FC = () => {
   const { isAuthenticated, login, isLocked, lockTimeRemaining, rememberedEmail } = useAdminAuth();
   const { language, setLanguage, t } = useLanguage();
-  const [email, setEmail] = useState(rememberedEmail || 'admin@quantumtech.com');
+  const [email, setEmail] = useState(rememberedEmail || '');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
@@ -149,7 +149,7 @@ export const AdminLoginPage: React.FC = () => {
                     setEmail(e.target.value);
                     if (error) setError('');
                   }}
-                  placeholder="admin@quantumtech.com"
+                  placeholder="Admin email"
                   autoComplete="email"
                   required
                   className="w-full rounded-xl border border-border px-4 py-2.5 text-sm text-ink focus:outline-none focus:border-quantum focus:ring-2 focus:ring-quantum-soft pr-10"
@@ -174,7 +174,7 @@ export const AdminLoginPage: React.FC = () => {
                     setPassword(e.target.value);
                     if (error) setError('');
                   }}
-                  placeholder="Enter passcode (e.g. admin123)"
+                  placeholder="Enter password"
                   autoComplete="current-password"
                   required
                   className="w-full rounded-xl border border-border px-4 py-2.5 text-sm text-ink focus:outline-none focus:border-quantum focus:ring-2 focus:ring-quantum-soft pr-11"
@@ -202,7 +202,6 @@ export const AdminLoginPage: React.FC = () => {
                 <span>{t.admin.login.rememberMe}</span>
               </label>
 
-              <span className="caption-4 text-muted">Demo: admin123</span>
             </div>
 
             {/* Submit Button */}
@@ -225,18 +224,6 @@ export const AdminLoginPage: React.FC = () => {
             </button>
           </form>
         )}
-
-        {/* Demo Credentials Box */}
-        <div className="mt-6 p-3 rounded-xl bg-surface-alt border border-border text-xs text-slate-600 flex flex-col gap-1">
-          <span className="font-semibold text-ink flex items-center gap-1.5">
-            <FontAwesomeIcon icon={Icons.info} className="h-3.5 w-3.5 text-quantum" />
-            <span>Store Administrator Demo Access:</span>
-          </span>
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between text-[11px] font-mono text-slate-500 mt-0.5">
-            <span>Email: <strong className="text-ink">admin@quantumtech.com</strong></span>
-            <span>Password: <strong className="text-quantum">admin123</strong></span>
-          </div>
-        </div>
 
         {/* Back Link */}
         <div className="mt-6 text-center border-t border-border pt-4">

@@ -27,13 +27,16 @@ export const ThemeToggle: React.FC<ThemeToggleProps> = ({
     : language === 'bn' ? 'ডার্ক মোডে পরিবর্তন করুন' : 'Switch to dark mode';
 
   if (variant === 'pill') {
+    const appearance = className
+      ? 'border'
+      : 'border border-border bg-surface hover:bg-surface-muted text-ink';
     return (
       <button
         id={id}
         type="button"
         onClick={toggleTheme}
         data-testid="theme-toggle-pill"
-        className={`btn-base border border-border bg-surface hover:bg-surface-muted text-ink button-sm shadow-2xs transition-all duration-300 ease-brand ${className}`}
+        className={`btn-base ${appearance} button-sm shadow-2xs transition-all duration-300 ease-brand ${className}`}
         aria-label={ariaLabel}
         title={ariaLabel}
       >
@@ -95,6 +98,9 @@ export const ThemeToggle: React.FC<ThemeToggleProps> = ({
   }
 
   // Default 'icon' button variant
+  const appearance = className
+    ? 'border'
+    : 'border border-border bg-surface hover:bg-surface-muted text-ink';
   return (
     <button
       id={id}
@@ -103,7 +109,7 @@ export const ThemeToggle: React.FC<ThemeToggleProps> = ({
       data-testid="theme-toggle-btn"
       aria-label={ariaLabel}
       title={ariaLabel}
-      className={`h-10 w-10 min-h-[40px] min-w-[40px] rounded-xl border border-border bg-surface hover:bg-surface-muted text-ink flex items-center justify-center transition-all duration-300 ease-brand shadow-2xs group focus:outline-none focus:border-quantum ${className}`}
+      className={`h-10 w-10 min-h-[40px] min-w-[40px] rounded-xl ${appearance} flex items-center justify-center transition-all duration-300 ease-brand shadow-2xs group focus:outline-none focus:border-quantum ${className}`}
     >
       <FontAwesomeIcon
         icon={isDark ? Icons.sun : Icons.moon}

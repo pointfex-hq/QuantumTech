@@ -987,15 +987,6 @@ export const AdminSettingsPage: React.FC = () => {
                 />
               </div>
 
-              <div>
-                <label className="caption-3 font-semibold text-ink block mb-1">Admin Demo Passcode</label>
-                <input
-                  type="text"
-                  disabled
-                  value="admin123 (Active)"
-                  className="w-full rounded-xl border border-border p-2.5 text-xs text-slate-500 bg-slate-100 cursor-not-allowed font-mono"
-                />
-              </div>
             </div>
           </div>
         )}
