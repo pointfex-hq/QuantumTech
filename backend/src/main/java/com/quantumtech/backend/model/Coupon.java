@@ -15,6 +15,8 @@ import java.util.List;
 public class Coupon {
     @Id private String id;
     private String code;
+    private String offerTitle;
+    private Integer minLifetimeDeliveredItems;
     private String discountType;
     private double discountValue;
     private Double minimumOrderValue;

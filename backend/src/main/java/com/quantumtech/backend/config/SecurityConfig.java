@@ -41,7 +41,10 @@ public class SecurityConfig {
                         session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/login", "/api/auth/forgot-password",
-                                "/api/auth/reset-password").permitAll()
+                                "/api/auth/reset-password", "/api/auth/customer/register",
+                                "/api/auth/customer/login", "/api/auth/customer/forgot-password",
+                                "/api/auth/customer/verify-reset-otp",
+                                "/api/auth/customer/reset-password").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/products/**", "/api/categories/**",
                                 "/api/settings", "/api/reviews/**", "/api/orders/track",
                                 "/api/payments/methods",
@@ -49,9 +52,11 @@ public class SecurityConfig {
                                 "/api/discounts/active").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/orders", "/api/reviews",
                                 "/api/cart/validate", "/api/orders/*/payment",
+                                "/api/reviews/images",
                                 "/api/promotions/coupons/validate",
                                 "/api/campaign-analytics/events").permitAll()
                         .requestMatchers("/swagger-ui/**", "/api-docs/**", "/swagger-ui.html").permitAll()
+                        .requestMatchers("/api/customer/**").hasRole("CUSTOMER")
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .exceptionHandling(ex -> ex.authenticationEntryPoint(

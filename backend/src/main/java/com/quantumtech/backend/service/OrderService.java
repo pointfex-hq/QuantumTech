@@ -102,6 +102,10 @@ public class OrderService {
     // ------------------------------------------------------------------ checkout
 
     public synchronized Order create(CreateOrderRequest request, String idempotencyKey) {
+        return create(request, idempotencyKey, null);
+    }
+
+    public synchronized Order create(CreateOrderRequest request, String idempotencyKey, String customerId) {
         String key = normalizeIdempotencyKey(idempotencyKey);
         if (key != null) {
             Optional<Order> existing = orders.findByIdempotencyKey(key);
@@ -153,7 +157,7 @@ public class OrderService {
         Order saved;
         try {
             Order order = buildOrder(request, quote, phone, trxId, senderNumber, key,
-                    coupon == null ? null : coupon.coupon().getCode(), couponDiscount);
+                    coupon == null ? null : coupon.coupon().getCode(), couponDiscount, customerId);
             saved = insertWithOrderNumber(order);
         } catch (DuplicateKeyException ex) {
             stock.releaseAll(reserved);
@@ -215,10 +219,11 @@ public class OrderService {
 
     private Order buildOrder(CreateOrderRequest request, CartQuote quote, String phone,
                              String trxId, String senderNumber, String key,
-                             String couponCode, int couponDiscount) {
+                             String couponCode, int couponDiscount, String customerId) {
         Instant now = Instant.now();
         Order order = new Order();
         order.setId(UUID.randomUUID().toString());
+        order.setCustomerId(customerId);
         order.setCustomerName(request.customerName().trim());
         order.setPhone(phone);
         order.setArea(request.area());

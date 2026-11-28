@@ -103,6 +103,7 @@ class PromotionServiceTest {
                                      CouponRepository coupons,
                                      CouponUsageRepository usages) {
         return new PromotionService(campaigns, mock(PromotionalPopupRepository.class),
-                discounts, coupons, usages, mock(CampaignAnalyticsEventRepository.class));
+                discounts, coupons, usages, mock(CampaignAnalyticsEventRepository.class),
+                mock(OrderRepository.class));
     }
 }

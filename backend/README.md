@@ -50,6 +50,10 @@ replace it with your Atlas URI locally, and keep real credentials out of Git:
 MONGODB_URI=mongodb+srv://USERNAME:PASSWORD@CLUSTER.mongodb.net/qtechdb
 MONGODB_DATABASE=qtechdb
 ```
+Generate a unique JWT signing secret of at least 32 bytes (for example, with
+`openssl rand -base64 48`) and set it as `JWT_SECRET` in `.env`. Do not use the example
+placeholder or commit the generated secret. Spring Boot loads this ignored `.env` file when
+started from the `backend` directory.
 Cloudinary values are intentionally blank until credentials are provided.
 Set `CORS_ALLOWED_ORIGINS` to the actual frontend origin(s) when deploying outside Vercel.
 
@@ -65,19 +69,29 @@ Authorization: Bearer <JWT_FROM_LOGIN>
 Content-Type: application/json
 ```
 
-The current `QuantumTech-main/src/services` layer keeps catalog, cart, checkout, order, review,
-settings, and promotion data in browser `localStorage`. Only administrator login currently calls
-the backend (`POST /api/auth/login`). These REST endpoints implement the server-side contract, but
-the storefront features will not use MongoDB or these APIs until their frontend services are wired
-to HTTP; frontend changes are intentionally outside this backend update.
+The frontend calls these REST endpoints for catalog, customer/admin accounts, settings, images,
+checkout, orders, reviews, and promotions. Product/category/promotion/settings/admin-profile writes
+are confirmed by the backend before the browser cache is updated. Guest carts and display
+preferences (language/theme) remain browser-local; checkout requires a successful server-side cart
+validation and order creation. Payment confirmation remains manual through the admin workflow.
+When the backend is unavailable, business writes and checkout fail with a visible error instead
+of being reported as successfully saved locally.
 
 ### Authentication
 
 | Method | Endpoint | Access |
 |---|---|---|
 | POST | `/api/auth/login` | Public |
+| PUT | `/api/admin/profile` | Administrator JWT |
 | POST | `/api/auth/forgot-password` | Public |
 | POST | `/api/auth/reset-password` | Public |
+| POST | `/api/auth/customer/register` | Public |
+| POST | `/api/auth/customer/login` | Public |
+| POST | `/api/auth/customer/forgot-password` | Public |
+| POST | `/api/auth/customer/verify-reset-otp` | Public |
+| POST | `/api/auth/customer/reset-password` | Public |
+| PUT | `/api/customer/me` | Customer — delivery details |
+| PUT | `/api/customer/me/personal` | Customer — name, email and phone |
 
 Login body:
 

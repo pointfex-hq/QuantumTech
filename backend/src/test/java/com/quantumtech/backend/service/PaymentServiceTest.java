@@ -120,6 +120,8 @@ class PaymentServiceTest {
         assertEquals("01898765432", updated.getSenderNumber());
         assertEquals("Verification pending", updated.getPaymentStatus());
         assertEquals("Customer", updated.getHistory().get(0).getChangedBy());
+        assertTrue(updated.getHistory().get(0).getNote().contains("Customer resubmitted"));
+        assertTrue(updated.getHistory().get(0).getNote().contains("NEWTRX5678"));
     }
 
     @Test

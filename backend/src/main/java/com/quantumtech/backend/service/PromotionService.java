@@ -5,6 +5,7 @@ import com.quantumtech.backend.dto.CouponValidationRequest;
 import com.quantumtech.backend.exception.ApiException;
 import com.quantumtech.backend.model.*;
 import com.quantumtech.backend.repository.*;
+import com.quantumtech.backend.repository.OrderRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
@@ -25,19 +26,22 @@ public class PromotionService {
     private final CouponRepository coupons;
     private final CouponUsageRepository couponUsages;
     private final CampaignAnalyticsEventRepository analytics;
+    private final OrderRepository orders;
 
     public PromotionService(CampaignRepository campaigns,
                             PromotionalPopupRepository popups,
                             ProductDiscountRepository discounts,
                             CouponRepository coupons,
                             CouponUsageRepository couponUsages,
-                            CampaignAnalyticsEventRepository analytics) {
+                            CampaignAnalyticsEventRepository analytics,
+                            OrderRepository orders) {
         this.campaigns = campaigns;
         this.popups = popups;
         this.discounts = discounts;
         this.coupons = coupons;
         this.couponUsages = couponUsages;
         this.analytics = analytics;
+        this.orders = orders;
     }
 
     public List<Campaign> campaigns(boolean activeOnly) {
@@ -272,7 +276,9 @@ public class PromotionService {
                 || coupon.getStartDate() == null || coupon.getEndDate() == null
                 || !coupon.getEndDate().isAfter(coupon.getStartDate())
                 || coupon.getDiscountValue() <= 0 || coupon.getUsageLimit() < 1
-                || coupon.getPerCustomerLimit() < 1) {
+                || coupon.getPerCustomerLimit() < 1
+                || (coupon.getMinLifetimeDeliveredItems() != null
+                && coupon.getMinLifetimeDeliveredItems() < 0)) {
             throw badRequest("Coupon code, positive discount, usage limits, and valid dates are required");
         }
         if (!Set.of("percentage", "fixed").contains(coupon.getDiscountType())) {
@@ -317,6 +323,21 @@ public class PromotionService {
         }
 
         String customerPhone = normalizePhone(request.customerPhone());
+        if (coupon.getMinLifetimeDeliveredItems() != null) {
+            if (customerPhone.isBlank()) {
+                return CouponValidationResult.invalid(
+                        "Enter the phone number on your customer account to use this offer.");
+            }
+            int deliveredItems = orders.findByPhoneAndStatus(customerPhone, OrderStatus.DELIVERED).stream()
+                    .flatMap(order -> Optional.ofNullable(order.getItems()).orElse(List.of()).stream())
+                    .mapToInt(OrderItem::getQuantity)
+                    .sum();
+            if (deliveredItems < coupon.getMinLifetimeDeliveredItems()) {
+                return CouponValidationResult.invalid("This offer requires at least "
+                        + coupon.getMinLifetimeDeliveredItems() + " delivered items. Your qualifying total is "
+                        + deliveredItems + ".");
+            }
+        }
         if (!customerPhone.isBlank()
                 && couponUsages.countByCouponIdAndCustomerPhone(coupon.getId(), customerPhone)
                 >= coupon.getPerCustomerLimit()) {
