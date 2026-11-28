@@ -27,6 +27,7 @@ export const AdminLayout: React.FC = () => {
     { to: '/admin/products', label: t.admin.nav.products, icon: Icons.package },
     { to: '/admin/categories', label: t.admin.nav.categories, icon: Icons.category },
     { to: '/admin/orders', label: t.admin.nav.orders, icon: Icons.order },
+    { to: '/admin/customers', label: t.admin.nav.customers, icon: Icons.user },
     { to: '/admin/reviews', label: t.admin.nav.reviews, icon: Icons.reviews },
     { to: '/admin/campaigns', label: t.admin.nav.campaigns, icon: Icons.campaign },
     { to: '/admin/popups', label: t.admin.nav.popups, icon: Icons.popup },
@@ -42,7 +43,7 @@ export const AdminLayout: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-surface-alt flex flex-col md:flex-row text-ink">
+    <div className="min-h-screen bg-surface-alt flex flex-col md:h-screen md:flex-row md:overflow-hidden text-ink">
       {/* Mobile Top Header */}
       <div className="md:hidden flex items-center justify-between px-2.5 sm:px-4 py-2 bg-slate-900 text-white border-b border-slate-800 z-40 sticky top-0 min-h-[52px]">
         <div className="flex items-center gap-1.5 sm:gap-2">
@@ -64,7 +65,8 @@ export const AdminLayout: React.FC = () => {
           {/* Theme Toggle Mobile - VISIBLE ON ALL SCREENS */}
           <ThemeToggle
             variant="icon"
-            className="h-10 w-10 min-h-[40px] min-w-[40px] bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700"
+            tone="inverse"
+            className="h-10 w-10 min-h-[40px] min-w-[40px]"
           />
 
           {/* Language Switcher Mobile */}
@@ -107,7 +109,7 @@ export const AdminLayout: React.FC = () => {
 
       {/* Admin Sidebar */}
       <aside
-        className={`fixed md:sticky top-0 h-screen bg-ink text-slate-300 border-r border-slate-800 flex flex-col z-50 transition-all duration-300 ease-brand ${
+        className={`fixed left-0 top-0 h-screen bg-ink text-slate-300 border-r border-slate-800 flex flex-col z-50 transition-all duration-300 ease-brand ${
           sidebarOpen ? 'translate-x-0 w-64' : '-translate-x-full md:translate-x-0'
         } ${sidebarCollapsed ? 'md:w-20' : 'md:w-64'}`}
       >
@@ -198,7 +200,8 @@ export const AdminLayout: React.FC = () => {
         <div className="p-3 border-t border-slate-800 flex flex-col gap-1.5 bg-slate-950/40">
           <ThemeToggle
             variant={sidebarCollapsed ? 'icon' : 'pill'}
-            className={`w-full text-xs bg-slate-900 border-slate-800 text-slate-300 hover:text-white ${
+            tone="inverse"
+            className={`w-full text-xs ${
               sidebarCollapsed ? 'justify-center mx-auto' : 'justify-start'
             }`}
           />
@@ -231,7 +234,11 @@ export const AdminLayout: React.FC = () => {
       </aside>
 
       {/* Main Content Area */}
-      <main className="flex-1 flex flex-col min-w-0 overflow-y-auto">
+      <main
+        className={`flex-1 flex flex-col min-w-0 overflow-y-auto md:min-h-0 transition-[margin] duration-300 ease-brand ${
+          sidebarCollapsed ? 'md:ml-20' : 'md:ml-64'
+        }`}
+      >
         {/* Desktop Top Bar */}
         <header className="hidden md:flex items-center justify-between px-8 py-3.5 bg-surface border-b border-border sticky top-0 z-20">
           <div className="flex items-center gap-3">

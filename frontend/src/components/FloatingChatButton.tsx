@@ -1,15 +1,15 @@
 import React, { useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Icons } from '../utilities/icons';
-import { initialStoreSettings } from '../data/mockData';
+import { defaultStoreSettings } from '../data/seedData';
 import { useLanguage } from '../context/LanguageContext';
 
 export const FloatingChatButton: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
   const { language } = useLanguage();
 
-  const whatsappUrl = `https://wa.me/${initialStoreSettings.whatsappNumber.replace(/[^0-9]/g, '')}?text=${encodeURIComponent('Hello QuantumTech! I have a question about your products.')}`;
-  const messengerUrl = initialStoreSettings.messengerUrl;
+  const whatsappUrl = `https://wa.me/${defaultStoreSettings.whatsappNumber.replace(/[^0-9]/g, '')}?text=${encodeURIComponent('Hello QuantumTech! I have a question about your products.')}`;
+  const messengerUrl = defaultStoreSettings.messengerUrl;
 
   return (
     <div className="fixed bottom-6 right-6 z-40 flex flex-col items-end gap-3 pointer-events-auto">

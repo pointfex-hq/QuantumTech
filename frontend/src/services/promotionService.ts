@@ -9,21 +9,39 @@ import {
   AnalyticsEventType,
 } from '../types/promotions';
 import { Product, CartItem, ProductVariant, Order } from '../types';
-import {
-  initialCampaigns,
-  initialPopups,
-  initialDiscounts,
-  initialCoupons,
-} from '../data/mockPromotions';
-import { initialOrders } from '../data/mockData';
 import { getItem, setItem, STORAGE_KEYS } from '../utilities/storage';
+import {
+  api,
+  clearAnalyticsLive,
+  isBackendConnected,
+  syncAnalyticsEvent,
+  syncCampaign,
+  syncCoupon,
+  syncDiscount,
+  syncPopup,
+} from './backend';
+
+const legacyDemoIds = {
+  campaigns: new Set(['camp-01', 'camp-02', 'camp-03']),
+  popups: new Set(['pop-01', 'pop-02', 'pop-03']),
+  discounts: new Set(['disc-01', 'disc-02', 'disc-03']),
+  coupons: new Set(['coup-01', 'coup-02', 'coup-03', 'coup-04']),
+  orders: new Set(['ord-01', 'ord-02']),
+};
+
+function getStoredList<T extends { id: string }>(key: string, demoIds: Set<string>): T[] {
+  const stored = getItem<T[]>(key, []);
+  const realItems = stored.filter((item) => !demoIds.has(item.id));
+  if (realItems.length !== stored.length) setItem(key, realItems);
+  return realItems;
+}
 
 export const promotionService = {
   // ==========================================
   // 1. CAMPAIGNS
   // ==========================================
   getAllCampaigns(): Campaign[] {
-    const campaigns = getItem<Campaign[]>(STORAGE_KEYS.CAMPAIGNS, initialCampaigns);
+    const campaigns = getStoredList<Campaign>(STORAGE_KEYS.CAMPAIGNS, legacyDemoIds.campaigns);
     const now = new Date().getTime();
     let updated = false;
 
@@ -73,8 +91,8 @@ export const promotionService = {
     return this.getAllCampaigns().find((c) => c.landingPageSlug === slug);
   },
 
-  saveCampaign(campaign: Campaign): Campaign {
-    const all = getItem<Campaign[]>(STORAGE_KEYS.CAMPAIGNS, initialCampaigns);
+  async saveCampaign(campaign: Campaign): Promise<Campaign> {
+    const all = getStoredList<Campaign>(STORAGE_KEYS.CAMPAIGNS, legacyDemoIds.campaigns);
     const idx = all.findIndex((c) => c.id === campaign.id);
     const now = new Date().toISOString();
     const updatedCampaign: Campaign = {
@@ -90,22 +108,28 @@ export const promotionService = {
       updatedList = [updatedCampaign, ...all];
     }
 
+    const saved = await syncCampaign(updatedCampaign, false, idx < 0);
+    const persistedCampaign = saved || updatedCampaign;
+    if (idx >= 0) updatedList[idx] = persistedCampaign;
+    else updatedList[0] = persistedCampaign;
     setItem(STORAGE_KEYS.CAMPAIGNS, updatedList);
     window.dispatchEvent(new Event('quantum_campaigns_updated'));
-    return updatedCampaign;
+    return persistedCampaign;
   },
 
-  deleteCampaign(id: string): void {
-    const all = getItem<Campaign[]>(STORAGE_KEYS.CAMPAIGNS, initialCampaigns);
+  async deleteCampaign(id: string): Promise<void> {
+    const all = getStoredList<Campaign>(STORAGE_KEYS.CAMPAIGNS, legacyDemoIds.campaigns);
+    const deleted = all.find((campaign) => campaign.id === id);
     const filtered = all.filter((c) => c.id !== id);
+    if (deleted) await syncCampaign(deleted, true);
     setItem(STORAGE_KEYS.CAMPAIGNS, filtered);
     window.dispatchEvent(new Event('quantum_campaigns_updated'));
   },
 
-  toggleCampaignStatus(id: string, status: Campaign['status']): void {
+  async toggleCampaignStatus(id: string, status: Campaign['status']): Promise<void> {
     const camp = this.getCampaignById(id);
     if (camp) {
-      this.saveCampaign({ ...camp, status });
+      await this.saveCampaign({ ...camp, status });
     }
   },
 
@@ -113,7 +137,7 @@ export const promotionService = {
   // 2. PROMOTIONAL POPUPS
   // ==========================================
   getAllPopups(): PromotionalPopup[] {
-    const popups = getItem<PromotionalPopup[]>(STORAGE_KEYS.POPUPS, initialPopups);
+    const popups = getStoredList<PromotionalPopup>(STORAGE_KEYS.POPUPS, legacyDemoIds.popups);
     return popups.sort((a, b) => b.priority - a.priority);
   },
 
@@ -131,8 +155,8 @@ export const promotionService = {
     return this.getAllPopups().find((p) => p.id === id);
   },
 
-  savePopup(popup: PromotionalPopup): PromotionalPopup {
-    const all = getItem<PromotionalPopup[]>(STORAGE_KEYS.POPUPS, initialPopups);
+  async savePopup(popup: PromotionalPopup): Promise<PromotionalPopup> {
+    const all = getStoredList<PromotionalPopup>(STORAGE_KEYS.POPUPS, legacyDemoIds.popups);
     const idx = all.findIndex((p) => p.id === popup.id);
     const now = new Date().toISOString();
     const updatedPopup: PromotionalPopup = {
@@ -148,14 +172,20 @@ export const promotionService = {
       updatedList = [updatedPopup, ...all];
     }
 
+    const saved = await syncPopup(updatedPopup, false, idx < 0);
+    const persistedPopup = saved || updatedPopup;
+    if (idx >= 0) updatedList[idx] = persistedPopup;
+    else updatedList[0] = persistedPopup;
     setItem(STORAGE_KEYS.POPUPS, updatedList);
     window.dispatchEvent(new Event('quantum_popups_updated'));
-    return updatedPopup;
+    return persistedPopup;
   },
 
-  deletePopup(id: string): void {
-    const all = getItem<PromotionalPopup[]>(STORAGE_KEYS.POPUPS, initialPopups);
+  async deletePopup(id: string): Promise<void> {
+    const all = getStoredList<PromotionalPopup>(STORAGE_KEYS.POPUPS, legacyDemoIds.popups);
+    const deleted = all.find((popup) => popup.id === id);
     const filtered = all.filter((p) => p.id !== id);
+    if (deleted) await syncPopup(deleted, true);
     setItem(STORAGE_KEYS.POPUPS, filtered);
     window.dispatchEvent(new Event('quantum_popups_updated'));
   },
@@ -260,7 +290,7 @@ export const promotionService = {
   // 3. PRODUCT DISCOUNTS & PRICE CALCULATIONS
   // ==========================================
   getAllDiscounts(): ProductDiscount[] {
-    const discounts = getItem<ProductDiscount[]>(STORAGE_KEYS.DISCOUNTS, initialDiscounts);
+    const discounts = getStoredList<ProductDiscount>(STORAGE_KEYS.DISCOUNTS, legacyDemoIds.discounts);
     return discounts.sort((a, b) => b.priority - a.priority);
   },
 
@@ -278,8 +308,8 @@ export const promotionService = {
     return this.getAllDiscounts().find((d) => d.id === id);
   },
 
-  saveDiscount(discount: ProductDiscount): ProductDiscount {
-    const all = getItem<ProductDiscount[]>(STORAGE_KEYS.DISCOUNTS, initialDiscounts);
+  async saveDiscount(discount: ProductDiscount): Promise<ProductDiscount> {
+    const all = getStoredList<ProductDiscount>(STORAGE_KEYS.DISCOUNTS, legacyDemoIds.discounts);
     const idx = all.findIndex((d) => d.id === discount.id);
     const now = new Date().toISOString();
     const updatedDiscount: ProductDiscount = {
@@ -295,14 +325,20 @@ export const promotionService = {
       updatedList = [updatedDiscount, ...all];
     }
 
+    const saved = await syncDiscount(updatedDiscount, false, idx < 0);
+    const persistedDiscount = saved || updatedDiscount;
+    if (idx >= 0) updatedList[idx] = persistedDiscount;
+    else updatedList[0] = persistedDiscount;
     setItem(STORAGE_KEYS.DISCOUNTS, updatedList);
     window.dispatchEvent(new Event('quantum_discounts_updated'));
-    return updatedDiscount;
+    return persistedDiscount;
   },
 
-  deleteDiscount(id: string): void {
-    const all = getItem<ProductDiscount[]>(STORAGE_KEYS.DISCOUNTS, initialDiscounts);
+  async deleteDiscount(id: string): Promise<void> {
+    const all = getStoredList<ProductDiscount>(STORAGE_KEYS.DISCOUNTS, legacyDemoIds.discounts);
+    const deleted = all.find((discount) => discount.id === id);
     const filtered = all.filter((d) => d.id !== id);
+    if (deleted) await syncDiscount(deleted, true);
     setItem(STORAGE_KEYS.DISCOUNTS, filtered);
     window.dispatchEvent(new Event('quantum_discounts_updated'));
   },
@@ -437,7 +473,7 @@ export const promotionService = {
   // 4. COUPONS
   // ==========================================
   getAllCoupons(): Coupon[] {
-    return getItem<Coupon[]>(STORAGE_KEYS.COUPONS, initialCoupons);
+    return getStoredList<Coupon>(STORAGE_KEYS.COUPONS, legacyDemoIds.coupons);
   },
 
   getCouponByCode(code: string): Coupon | undefined {
@@ -449,7 +485,7 @@ export const promotionService = {
   getLifetimeDeliveredItemCount(phone: string): number {
     const cleanPhone = phone.replace(/[\s-]/g, '');
     if (!cleanPhone) return 0;
-    const orders = getItem<Order[]>(STORAGE_KEYS.ORDERS, initialOrders);
+    const orders = getStoredList<Order>(STORAGE_KEYS.ORDERS, legacyDemoIds.orders);
     return orders
       .filter((order) =>
         order.status === 'Delivered' &&
@@ -474,7 +510,7 @@ export const promotionService = {
     );
   },
 
-  saveCoupon(coupon: Coupon): Coupon {
+  async saveCoupon(coupon: Coupon): Promise<Coupon> {
     const all = this.getAllCoupons();
     const idx = all.findIndex((c) => c.id === coupon.id || c.code.toUpperCase() === coupon.code.toUpperCase());
     const cleanCoupon: Coupon = {
@@ -490,14 +526,20 @@ export const promotionService = {
       updatedList = [cleanCoupon, ...all];
     }
 
+    const saved = await syncCoupon(cleanCoupon, false, idx < 0);
+    const persistedCoupon = saved || cleanCoupon;
+    if (idx >= 0) updatedList[idx] = persistedCoupon;
+    else updatedList[0] = persistedCoupon;
     setItem(STORAGE_KEYS.COUPONS, updatedList);
     window.dispatchEvent(new Event('quantum_coupons_updated'));
-    return cleanCoupon;
+    return persistedCoupon;
   },
 
-  deleteCoupon(id: string): void {
+  async deleteCoupon(id: string): Promise<void> {
     const all = this.getAllCoupons();
+    const deleted = all.find((coupon) => coupon.id === id);
     const filtered = all.filter((c) => c.id !== id);
+    if (deleted) await syncCoupon(deleted, true);
     setItem(STORAGE_KEYS.COUPONS, filtered);
     window.dispatchEvent(new Event('quantum_coupons_updated'));
   },
@@ -609,6 +651,37 @@ export const promotionService = {
     return { valid: true, discountAmount, coupon };
   },
 
+  async validateCouponLive(
+    code: string,
+    cartItems: CartItem[],
+    customerPhone?: string
+  ): Promise<{ valid: boolean; discountAmount: number; error?: string; coupon?: Coupon }> {
+    if (!isBackendConnected()) {
+      return { valid: false, discountAmount: 0, error: 'Coupons are unavailable because the backend is not connected.' };
+    }
+    try {
+      return await api<{ valid: boolean; discountAmount: number; error?: string; coupon?: Coupon }>(
+        '/api/promotions/coupons/validate', {
+        method: 'POST',
+        body: JSON.stringify({
+          code,
+          customerPhone,
+          items: cartItems.map((item) => ({
+            productId: item.product.id,
+            categoryId: item.product.categoryId,
+            lineTotal: item.lineTotal,
+          })),
+        }),
+      });
+    } catch (error) {
+      return {
+        valid: false,
+        discountAmount: 0,
+        error: error instanceof Error ? error.message : 'Coupon validation failed.',
+      };
+    }
+  },
+
   recordCouponUsage(
     orderNumber: string,
     couponCode: string,
@@ -675,9 +748,41 @@ export const promotionService = {
     // Cap events list at 2000 items in storage
     if (events.length > 2000) events.shift();
     setItem(STORAGE_KEYS.CAMPAIGN_ANALYTICS, events);
+    window.dispatchEvent(new Event('quantum_analytics_updated'));
+    if (eventType !== 'coupon_applied' && eventType !== 'order_completed') {
+      syncAnalyticsEvent(events[events.length - 1]);
+    }
   },
 
   getAnalyticsSummary() {
+    const serverSummary = getItem<{
+      impressions?: number;
+      closes?: number;
+      clicks?: number;
+      campaignVisits?: number;
+      productClicks?: number;
+      couponsUsed?: number;
+      orders?: number;
+      totalRevenue?: number;
+      ctr?: number;
+      closeRate?: number;
+    } | null>(STORAGE_KEYS.CAMPAIGN_ANALYTICS_SUMMARY, null);
+    if (isBackendConnected() && serverSummary) {
+      const recentEvents = this.getAnalyticsEvents().slice(-50).reverse();
+      return {
+        impressions: serverSummary.impressions ?? 0,
+        closes: serverSummary.closes ?? 0,
+        clicks: serverSummary.clicks ?? 0,
+        campaignVisits: serverSummary.campaignVisits ?? 0,
+        productClicks: serverSummary.productClicks ?? 0,
+        couponsUsed: serverSummary.couponsUsed ?? 0,
+        orders: serverSummary.orders ?? 0,
+        totalRevenue: serverSummary.totalRevenue ?? 0,
+        ctr: serverSummary.ctr ?? 0,
+        closeRate: serverSummary.closeRate ?? 0,
+        recentEvents,
+      };
+    }
     const events = getItem<CampaignAnalyticsEvent[]>(STORAGE_KEYS.CAMPAIGN_ANALYTICS, []);
 
     const impressions = events.filter((e) => e.eventType === 'popup_impression').length;
@@ -713,8 +818,10 @@ export const promotionService = {
     return getItem<CampaignAnalyticsEvent[]>(STORAGE_KEYS.CAMPAIGN_ANALYTICS, []);
   },
 
-  clearAnalytics(): void {
+  async clearAnalytics(): Promise<void> {
+    await clearAnalyticsLive();
     setItem(STORAGE_KEYS.CAMPAIGN_ANALYTICS, []);
+    setItem(STORAGE_KEYS.CAMPAIGN_ANALYTICS_SUMMARY, {});
     window.dispatchEvent(new Event('quantum_analytics_updated'));
   },
 
@@ -723,7 +830,7 @@ export const promotionService = {
     return this.getAllCampaigns();
   },
 
-  createCampaign(data: Omit<Campaign, 'id' | 'createdAt' | 'updatedAt'>): Campaign {
+  createCampaign(data: Omit<Campaign, 'id' | 'createdAt' | 'updatedAt'>): Promise<Campaign> {
     const newCamp: Campaign = {
       ...data,
       id: `camp-${Date.now()}`,
@@ -733,7 +840,7 @@ export const promotionService = {
     return this.saveCampaign(newCamp);
   },
 
-  updateCampaign(id: string, data: Partial<Campaign>): Campaign | undefined {
+  async updateCampaign(id: string, data: Partial<Campaign>): Promise<Campaign | undefined> {
     const existing = this.getCampaignById(id);
     if (!existing) return undefined;
     const updated = { ...existing, ...data, updatedAt: new Date().toISOString() };
@@ -744,7 +851,7 @@ export const promotionService = {
     return this.getAllPopups();
   },
 
-  createPopup(data: Omit<PromotionalPopup, 'id' | 'createdAt' | 'updatedAt'>): PromotionalPopup {
+  createPopup(data: Omit<PromotionalPopup, 'id' | 'createdAt' | 'updatedAt'>): Promise<PromotionalPopup> {
     const newPopup: PromotionalPopup = {
       ...data,
       id: `pop-${Date.now()}`,
@@ -754,7 +861,7 @@ export const promotionService = {
     return this.savePopup(newPopup);
   },
 
-  updatePopup(id: string, data: Partial<PromotionalPopup>): PromotionalPopup | undefined {
+  async updatePopup(id: string, data: Partial<PromotionalPopup>): Promise<PromotionalPopup | undefined> {
     const existing = this.getPopupById(id);
     if (!existing) return undefined;
     const updated = { ...existing, ...data, updatedAt: new Date().toISOString() };
@@ -765,7 +872,7 @@ export const promotionService = {
     return this.getAllDiscounts();
   },
 
-  createDiscount(data: Omit<ProductDiscount, 'id' | 'createdAt' | 'updatedAt'>): ProductDiscount {
+  createDiscount(data: Omit<ProductDiscount, 'id' | 'createdAt' | 'updatedAt'>): Promise<ProductDiscount> {
     const newDiscount: ProductDiscount = {
       ...data,
       id: `disc-${Date.now()}`,
@@ -775,7 +882,7 @@ export const promotionService = {
     return this.saveDiscount(newDiscount);
   },
 
-  updateDiscount(id: string, data: Partial<ProductDiscount>): ProductDiscount | undefined {
+  async updateDiscount(id: string, data: Partial<ProductDiscount>): Promise<ProductDiscount | undefined> {
     const existing = this.getDiscountById(id);
     if (!existing) return undefined;
     const updated = { ...existing, ...data, updatedAt: new Date().toISOString() };
@@ -786,7 +893,7 @@ export const promotionService = {
     return this.getAllCoupons();
   },
 
-  createCoupon(data: Omit<Coupon, 'id' | 'createdAt' | 'usedCount'>): Coupon {
+  createCoupon(data: Omit<Coupon, 'id' | 'createdAt' | 'usedCount'>): Promise<Coupon> {
     const newCoupon: Coupon = {
       ...data,
       id: `cpn-${Date.now()}`,
@@ -796,7 +903,7 @@ export const promotionService = {
     return this.saveCoupon(newCoupon);
   },
 
-  updateCoupon(id: string, data: Partial<Coupon>): Coupon | undefined {
+  async updateCoupon(id: string, data: Partial<Coupon>): Promise<Coupon | undefined> {
     const existing = this.getCouponByCode(data.code || '') || this.getAllCoupons().find((c) => c.id === id);
     if (!existing) return undefined;
     const updated = { ...existing, ...data };

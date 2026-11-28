@@ -32,26 +32,34 @@ export const AdminReviewsPage: React.FC = () => {
     }
   };
 
-  const handleModerate = (id: string, status: 'Approved' | 'Rejected') => {
-    reviewService.moderateReview(id, status, 'Admin');
-    refreshReviews();
-    showToast(
-      status === 'Approved'
-        ? 'Review approved! It is now visible on the customer storefront.'
-        : 'Review rejected.',
-      status === 'Approved' ? 'success' : 'info'
-    );
+  const handleModerate = async (id: string, status: 'Approved' | 'Rejected') => {
+    try {
+      await reviewService.moderateReview(id, status, 'Admin');
+      refreshReviews();
+      showToast(
+        status === 'Approved'
+          ? 'Review approved! It is now visible on the customer storefront.'
+          : 'Review rejected.',
+        status === 'Approved' ? 'success' : 'info'
+      );
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Failed to update review.', 'error');
+    }
   };
 
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
     if (!reviewToDelete) return;
-    reviewService.deleteReview(reviewToDelete.id);
-    if (selectedReview?.id === reviewToDelete.id) {
-      setSelectedReview(null);
+    try {
+      await reviewService.deleteReview(reviewToDelete.id);
+      if (selectedReview?.id === reviewToDelete.id) {
+        setSelectedReview(null);
+      }
+      refreshReviews();
+      setReviewToDelete(null);
+      showToast('Customer review permanently deleted.', 'info');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Failed to delete review.', 'error');
     }
-    refreshReviews();
-    setReviewToDelete(null);
-    showToast('Customer review permanently deleted.', 'info');
   };
 
   // Filter, Search, and Sort

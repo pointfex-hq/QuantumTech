@@ -14,6 +14,8 @@ export const AdminCouponsPage: React.FC = () => {
 
   // Form states
   const [code, setCode] = useState('');
+  const [offerTitle, setOfferTitle] = useState('');
+  const [minLifetimeDeliveredItems, setMinLifetimeDeliveredItems] = useState<number | undefined>();
   const [discountType, setDiscountType] = useState<'percentage' | 'fixed'>('percentage');
   const [discountValue, setDiscountValue] = useState<number>(10);
   const [minimumOrderValue, setMinimumOrderValue] = useState<number>(0);
@@ -39,6 +41,8 @@ export const AdminCouponsPage: React.FC = () => {
     const now = new Date();
     const nextMonth = new Date(Date.now() + 30 * 86400000);
     setCode('');
+    setOfferTitle('');
+    setMinLifetimeDeliveredItems(undefined);
     setDiscountType('percentage');
     setDiscountValue(10);
     setMinimumOrderValue(1000);
@@ -53,6 +57,8 @@ export const AdminCouponsPage: React.FC = () => {
   const openEditModal = (c: Coupon) => {
     setEditingCoupon(c);
     setCode(c.code);
+    setOfferTitle(c.offerTitle || '');
+    setMinLifetimeDeliveredItems(c.minLifetimeDeliveredItems);
     setDiscountType(c.discountType);
     setDiscountValue(c.discountValue);
     setMinimumOrderValue(c.minimumOrderValue || 0);
@@ -64,7 +70,7 @@ export const AdminCouponsPage: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!code.trim()) {
       showToast('Coupon code is required.', 'error');
@@ -77,6 +83,10 @@ export const AdminCouponsPage: React.FC = () => {
 
     const couponData: Omit<Coupon, 'id' | 'createdAt' | 'usedCount'> = {
       code: code.trim().toUpperCase().replace(/[^A-Z0-9_-]/g, ''),
+      offerTitle: offerTitle.trim() || undefined,
+      minLifetimeDeliveredItems: minLifetimeDeliveredItems && minLifetimeDeliveredItems > 0
+        ? Number(minLifetimeDeliveredItems)
+        : undefined,
       discountType,
       discountValue: Number(discountValue),
       minimumOrderValue: Number(minimumOrderValue) || 0,
@@ -88,30 +98,41 @@ export const AdminCouponsPage: React.FC = () => {
       isActive: true,
     };
 
-    if (editingCoupon) {
-      promotionService.updateCoupon(editingCoupon.id, couponData);
-      showToast('Coupon updated successfully!', 'success');
-    } else {
-      promotionService.createCoupon(couponData);
-      showToast('Coupon created successfully!', 'success');
-    }
-
-    setIsModalOpen(false);
-    loadData();
-  };
-
-  const handleDelete = (id: string, code: string) => {
-    if (window.confirm(`Delete coupon "${code}"?`)) {
-      promotionService.deleteCoupon(id);
-      showToast('Coupon deleted.', 'info');
+    try {
+      if (editingCoupon) {
+        await promotionService.updateCoupon(editingCoupon.id, couponData);
+        showToast('Coupon updated successfully!', 'success');
+      } else {
+        await promotionService.createCoupon(couponData);
+        showToast('Coupon created successfully!', 'success');
+      }
+      setIsModalOpen(false);
       loadData();
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Failed to save coupon.', 'error');
     }
   };
 
-  const handleToggle = (c: Coupon) => {
-    promotionService.updateCoupon(c.id, { isActive: !c.isActive });
-    showToast(`Coupon ${!c.isActive ? 'activated' : 'paused'}.`, 'success');
-    loadData();
+  const handleDelete = async (id: string, code: string) => {
+    if (window.confirm(`Delete coupon "${code}"?`)) {
+      try {
+        await promotionService.deleteCoupon(id);
+        showToast('Coupon deleted.', 'info');
+        loadData();
+      } catch (error) {
+        showToast(error instanceof Error ? error.message : 'Failed to delete coupon.', 'error');
+      }
+    }
+  };
+
+  const handleToggle = async (c: Coupon) => {
+    try {
+      await promotionService.updateCoupon(c.id, { isActive: !c.isActive });
+      showToast(`Coupon ${!c.isActive ? 'activated' : 'paused'}.`, 'success');
+      loadData();
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Failed to update coupon.', 'error');
+    }
   };
 
   const filteredCoupons = coupons.filter((c) =>
@@ -274,6 +295,29 @@ export const AdminCouponsPage: React.FC = () => {
                   placeholder="e.g. EID20"
                   className="w-full rounded-xl border border-border px-3 py-2 font-mono uppercase text-ink focus:border-quantum focus:outline-none"
                 />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="font-semibold text-ink block mb-1">Offer Title</label>
+                  <input
+                    type="text"
+                    value={offerTitle}
+                    onChange={(e) => setOfferTitle(e.target.value)}
+                    className="w-full rounded-xl border border-border px-3 py-2 text-ink focus:border-quantum focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="font-semibold text-ink block mb-1">Minimum Lifetime Delivered Items</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={minLifetimeDeliveredItems ?? ''}
+                    onChange={(e) => setMinLifetimeDeliveredItems(e.target.value ? Number(e.target.value) : undefined)}
+                    placeholder="Optional"
+                    className="w-full rounded-xl border border-border px-3 py-2 text-ink focus:border-quantum focus:outline-none"
+                  />
+                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-4 bg-surface-alt rounded-xl border border-border">

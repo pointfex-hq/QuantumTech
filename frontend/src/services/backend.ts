@@ -1,8 +1,12 @@
 import { Category, Order, OrderItem, Product, Review, StoreSettings } from '../types';
-import { getItem, setItem, STORAGE_KEYS } from '../utilities/storage';
+import { Campaign, CampaignAnalyticsEvent, Coupon, ProductDiscount, PromotionalPopup } from '../types/promotions';
+import { getItem, removeItem, setItem, STORAGE_KEYS } from '../utilities/storage';
 
 const TOKEN_KEY = 'qt_admin_token';
-const API_BASE = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_URL) ? import.meta.env.VITE_API_URL : '';
+const CUSTOMER_TOKEN_KEY = 'qt_customer_token';
+const API_BASE = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_URL)
+  ? import.meta.env.VITE_API_URL.replace(/\/+$/, '')
+  : '';
 
 let connected = false;
 
@@ -19,14 +23,34 @@ export function setAdminToken(token: string | null): void {
   else localStorage.removeItem(TOKEN_KEY);
 }
 
+export async function updateAdminProfile(data: { name: string; email: string }): Promise<{ token: string; name: string; email: string; role: string }> {
+  const updated = await api<{ token: string; name: string; email: string; role: string }>('/api/admin/profile', {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+  setAdminToken(updated.token);
+  return updated;
+}
+
+export function getCustomerToken(): string | null {
+  return localStorage.getItem(CUSTOMER_TOKEN_KEY);
+}
+
+export function setCustomerToken(token: string | null): void {
+  if (token) localStorage.setItem(CUSTOMER_TOKEN_KEY, token);
+  else localStorage.removeItem(CUSTOMER_TOKEN_KEY);
+}
+
 export class ApiError extends Error {
   status: number;
   code?: string;
+  fieldErrors?: Record<string, string>;
 
-  constructor(message: string, status: number, code?: string) {
+  constructor(message: string, status: number, code?: string, fieldErrors?: Record<string, string>) {
     super(message);
     this.status = status;
     this.code = code;
+    this.fieldErrors = fieldErrors;
   }
 }
 
@@ -35,18 +59,56 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   if (!headers.has('Content-Type') && options.body) {
     headers.set('Content-Type', 'application/json');
   }
-  const token = getAdminToken();
+  const token = path.startsWith('/api/admin/')
+    ? getAdminToken()
+    : path.startsWith('/api/customer/') || path === '/api/orders'
+      ? getCustomerToken()
+      : null;
   if (token) headers.set('Authorization', `Bearer ${token}`);
 
   const url = path.startsWith('http') ? path : `${API_BASE}${path}`;
   const response = await fetch(url, { ...options, headers });
   const text = await response.text();
-  const data = text ? JSON.parse(text) : null;
-  if (!response.ok) {
-    const message = data?.error || data?.message || response.statusText || 'Request failed';
-    throw new ApiError(message, response.status, data?.code);
+  let parsedData: unknown = null;
+  if (text) {
+    try {
+      parsedData = JSON.parse(text);
+    } catch {
+      if (response.ok) {
+        throw new ApiError('The server returned an invalid response.', response.status);
+      }
+    }
   }
-  return data as T;
+  const data = parsedData && typeof parsedData === 'object' && !Array.isArray(parsedData)
+    ? parsedData as Record<string, unknown>
+    : null;
+  if (!response.ok) {
+    const rawFields = data?.fields;
+    const fieldErrors = rawFields && typeof rawFields === 'object' && !Array.isArray(rawFields)
+      ? Object.fromEntries(
+          Object.entries(rawFields).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+        )
+      : undefined;
+    const rawMessage = data?.error || data?.message;
+    const isAdminRequest = path.startsWith('/api/admin/');
+    if (response.status === 401 && isAdminRequest) {
+      setAdminToken(null);
+      removeItem(STORAGE_KEYS.ADMIN_SESSION);
+      publish('quantum_auth_updated');
+    }
+    const message = typeof rawMessage === 'string'
+      ? rawMessage
+      : response.status === 401 && isAdminRequest
+        ? 'Your administrator session has expired. Please sign in again.'
+        : response.statusText || `Request failed (${response.status})`;
+    throw new ApiError(
+      message,
+      response.status,
+      typeof data?.code === 'string' ? data.code : undefined,
+      fieldErrors
+    );
+  }
+  return parsedData as T;
 }
 
 type RawProduct = Product & { featured?: boolean; new?: boolean };
@@ -74,30 +136,46 @@ function saveList<T>(key: string, value: T, event: string): void {
 }
 
 export async function connectBackend(): Promise<boolean> {
+  let probe: Response;
   try {
-    const probe = await fetch(`${API_BASE}/api/settings`, { signal: AbortSignal.timeout(3000) });
-    if (!probe.ok) {
-      connected = false;
-      return false;
-    }
-    connected = true;
-    await refreshPublicCatalog();
-    if (getAdminToken()) {
-      await refreshAdminCatalog().catch(() => setAdminToken(null));
-    }
-    return true;
+    probe = await fetch(`${API_BASE}/api/settings`, { signal: AbortSignal.timeout(3000) });
   } catch {
     connected = false;
+    publish('quantum_backend_connection_updated');
     return false;
   }
+  if (!probe.ok) {
+    connected = false;
+    publish('quantum_backend_connection_updated');
+    return false;
+  }
+
+  connected = true;
+  publish('quantum_backend_connection_updated');
+  try {
+    await Promise.all([refreshPublicCatalog(), refreshPublicPromotions()]);
+  } catch (error) {
+    reportBackendError(error);
+  }
+  if (getAdminToken()) {
+    try {
+      await Promise.all([refreshAdminCatalog(), refreshAdminPromotions()]);
+    } catch (error) {
+      if (!(error instanceof ApiError && error.status === 401)) {
+        reportBackendError(error);
+      }
+    }
+  }
+  return true;
 }
 
 export async function refreshPublicCatalog(): Promise<void> {
-  const [settings, products, categories, reviews] = await Promise.all([
+  const [settings, products, categories, reviews, hasAdminProducts] = await Promise.all([
     api<StoreSettings>('/api/settings'),
     api<RawProduct[]>('/api/products'),
     api<Category[]>('/api/categories'),
     api<Review[]>('/api/reviews'),
+    api<boolean>('/api/products/has-admin-products'),
   ]);
 
   const currentSettings = getItem<StoreSettings | null>(STORAGE_KEYS.SETTINGS, null);
@@ -107,19 +185,9 @@ export async function refreshPublicCatalog(): Promise<void> {
     'quantum_settings_updated'
   );
 
-  if (products.length > 0) {
-    saveList(STORAGE_KEYS.PRODUCTS, products.map(fromApiProduct), 'quantum_products_updated');
-  }
-  if (categories.length > 0) {
-    const existing = getItem<Category[]>(STORAGE_KEYS.CATEGORIES, []);
-    const hidden = existing.filter((c) => c.status === 'Hidden');
-    const visibleIds = new Set(categories.map((c) => c.id));
-    saveList(
-      STORAGE_KEYS.CATEGORIES,
-      [...categories, ...hidden.filter((c) => !visibleIds.has(c.id))],
-      'quantum_categories_updated'
-    );
-  }
+  setItem(STORAGE_KEYS.SEED_CATALOG_ACTIVE, !hasAdminProducts);
+  saveList(STORAGE_KEYS.PRODUCTS, products.map(fromApiProduct), 'quantum_products_updated');
+  saveList(STORAGE_KEYS.CATEGORIES, categories, 'quantum_categories_updated');
   if (getAdminToken()) return;
   saveList(STORAGE_KEYS.REVIEWS, reviews, 'quantum_reviews_updated');
 }
@@ -131,10 +199,39 @@ export async function refreshAdminCatalog(): Promise<void> {
     api<Review[]>('/api/admin/reviews'),
     api<Order[]>('/api/admin/orders'),
   ]);
+  setItem(STORAGE_KEYS.SEED_CATALOG_ACTIVE, products.length === 0);
   saveList(STORAGE_KEYS.PRODUCTS, products.map(fromApiProduct), 'quantum_products_updated');
   saveList(STORAGE_KEYS.CATEGORIES, categories, 'quantum_categories_updated');
   saveList(STORAGE_KEYS.REVIEWS, reviews, 'quantum_reviews_updated');
   saveList(STORAGE_KEYS.ORDERS, orders, 'quantum_orders_updated');
+}
+
+export async function refreshPublicPromotions(): Promise<void> {
+  const [campaigns, popups, discounts] = await Promise.all([
+    api<Campaign[]>('/api/campaigns'),
+    api<PromotionalPopup[]>('/api/promotions/popups/active'),
+    api<ProductDiscount[]>('/api/discounts/active'),
+  ]);
+  saveList(STORAGE_KEYS.CAMPAIGNS, campaigns, 'quantum_campaigns_updated');
+  saveList(STORAGE_KEYS.POPUPS, popups, 'quantum_popups_updated');
+  saveList(STORAGE_KEYS.DISCOUNTS, discounts, 'quantum_discounts_updated');
+}
+
+export async function refreshAdminPromotions(): Promise<void> {
+  const [campaigns, popups, discounts, coupons, summary, events] = await Promise.all([
+    api<Campaign[]>('/api/admin/campaigns'),
+    api<PromotionalPopup[]>('/api/admin/popups'),
+    api<ProductDiscount[]>('/api/admin/discounts'),
+    api<Coupon[]>('/api/admin/coupons'),
+    api<Record<string, unknown>>('/api/admin/campaign-analytics/summary'),
+    api<CampaignAnalyticsEvent[]>('/api/admin/campaign-analytics/events'),
+  ]);
+  saveList(STORAGE_KEYS.CAMPAIGNS, campaigns, 'quantum_campaigns_updated');
+  saveList(STORAGE_KEYS.POPUPS, popups, 'quantum_popups_updated');
+  saveList(STORAGE_KEYS.DISCOUNTS, discounts, 'quantum_discounts_updated');
+  saveList(STORAGE_KEYS.COUPONS, coupons, 'quantum_coupons_updated');
+  setItem(STORAGE_KEYS.CAMPAIGN_ANALYTICS_SUMMARY, summary);
+  saveList(STORAGE_KEYS.CAMPAIGN_ANALYTICS, events, 'quantum_analytics_updated');
 }
 
 export function rememberOrder(order: Order): void {
@@ -187,48 +284,98 @@ export function mapPublicOrder(raw: Record<string, unknown>, language: 'en' | 'b
 
 function quiet(work: Promise<unknown>): void {
   void work.catch((error) => {
-    console.error('QuantumTech API sync failed', error);
+    reportBackendError(error);
   });
 }
 
-export function syncProduct(product: Product, remove = false): void {
-  if (!connected || !getAdminToken()) return;
-  if (remove) {
-    quiet(api(`/api/admin/products/${product.id}`, { method: 'DELETE' }));
-    return;
-  }
-  quiet(api(`/api/admin/products/${product.id}`, {
-    method: 'PUT',
-    body: JSON.stringify(product),
-  }));
+export function reportBackendError(error: unknown): void {
+  console.error('QuantumTech API request failed', error);
+  const message = error instanceof Error ? error.message : 'The server request failed.';
+  window.dispatchEvent(new CustomEvent('quantum_backend_sync_error', { detail: { message } }));
 }
 
-export function syncCategory(category: Category, remove = false): void {
-  if (!connected || !getAdminToken()) return;
-  if (remove) {
-    quiet(api(`/api/admin/categories/${category.id}`, { method: 'DELETE' }));
-    return;
+async function requireAdminBackend(): Promise<void> {
+  if (!connected && !(await connectBackend())) {
+    throw new ApiError('The backend is not connected. Please try again when it is available.', 503);
   }
-  quiet(api(`/api/admin/categories/${category.id}`, {
-    method: 'PUT',
-    body: JSON.stringify(category),
-  }));
+  if (!getAdminToken()) {
+    throw new ApiError('Sign in as an administrator before changing store data.', 401);
+  }
 }
 
-export function syncCategoryOrder(categories: Category[]): void {
-  if (!connected || !getAdminToken()) return;
-  quiet(api('/api/admin/categories/reorder', {
+async function syncEntity<T extends { id: string }>(
+  path: string,
+  entity: T,
+  method: 'POST' | 'PUT' | 'DELETE',
+  create = false
+): Promise<T | undefined> {
+  await requireAdminBackend();
+  const url = create ? path : `${path}/${encodeURIComponent(entity.id)}`;
+  if (method === 'DELETE') {
+    await api<void>(url, { method });
+    return undefined;
+  }
+  return api<T>(url, { method, body: JSON.stringify(entity) });
+}
+
+export function syncProduct(product: Product, remove = false, create = false): Promise<Product | undefined> {
+  return syncEntity('/api/admin/products', product, remove ? 'DELETE' : create ? 'POST' : 'PUT', create);
+}
+
+export function syncCategory(category: Category, remove = false, create = false): Promise<Category | undefined> {
+  return syncEntity('/api/admin/categories', category, remove ? 'DELETE' : create ? 'POST' : 'PUT', create);
+}
+
+export async function syncCategoryOrder(categories: Category[]): Promise<void> {
+  await requireAdminBackend();
+  await api<void>('/api/admin/categories/reorder', {
     method: 'PUT',
     body: JSON.stringify(categories),
+  });
+}
+
+export async function syncSettings(settings: StoreSettings): Promise<StoreSettings> {
+  await requireAdminBackend();
+  return api('/api/admin/settings', {
+    method: 'PUT',
+    body: JSON.stringify(settings),
+  });
+}
+
+export function syncCampaign(campaign: Campaign, remove = false, create = false): Promise<Campaign | undefined> {
+  return syncEntity('/api/admin/campaigns', campaign, remove ? 'DELETE' : create ? 'POST' : 'PUT', create);
+}
+
+export function syncPopup(popup: PromotionalPopup, remove = false, create = false): Promise<PromotionalPopup | undefined> {
+  return syncEntity('/api/admin/popups', popup, remove ? 'DELETE' : create ? 'POST' : 'PUT', create);
+}
+
+export function syncDiscount(discount: ProductDiscount, remove = false, create = false): Promise<ProductDiscount | undefined> {
+  return syncEntity('/api/admin/discounts', discount, remove ? 'DELETE' : create ? 'POST' : 'PUT', create);
+}
+
+export function syncCoupon(coupon: Coupon, remove = false, create = false): Promise<Coupon | undefined> {
+  return syncEntity('/api/admin/coupons', coupon, remove ? 'DELETE' : create ? 'POST' : 'PUT', create);
+}
+
+export function syncAnalyticsEvent(event: CampaignAnalyticsEvent): void {
+  if (!connected) return;
+  quiet(api<CampaignAnalyticsEvent>('/api/campaign-analytics/events', {
+    method: 'POST',
+    body: JSON.stringify(event),
+  }).then((saved) => {
+    const events = getItem<CampaignAnalyticsEvent[]>(STORAGE_KEYS.CAMPAIGN_ANALYTICS, []);
+    saveList(STORAGE_KEYS.CAMPAIGN_ANALYTICS,
+      [...events.filter((item) => item.id !== event.id), saved],
+      'quantum_analytics_updated');
   }));
 }
 
-export function syncSettings(settings: StoreSettings): void {
-  if (!connected || !getAdminToken()) return;
-  quiet(api('/api/admin/settings', {
-    method: 'PUT',
-    body: JSON.stringify(settings),
-  }));
+export async function clearAnalyticsLive(): Promise<void> {
+  await requireAdminBackend();
+  await api('/api/admin/campaign-analytics/events', { method: 'DELETE' });
+  setItem(STORAGE_KEYS.CAMPAIGN_ANALYTICS_SUMMARY, {});
+  saveList(STORAGE_KEYS.CAMPAIGN_ANALYTICS, [], 'quantum_analytics_updated');
 }
 
 export function syncReviewCreate(review: Review): void {
@@ -249,21 +396,22 @@ export function syncReviewCreate(review: Review): void {
   }));
 }
 
-export function syncReviewModerate(id: string, status: 'Approved' | 'Rejected'): void {
-  if (!connected || !getAdminToken()) return;
-  quiet(api(`/api/admin/reviews/${id}`, {
+export async function syncReviewModerate(id: string, status: 'Approved' | 'Rejected'): Promise<void> {
+  await requireAdminBackend();
+  await api(`/api/admin/reviews/${id}`, {
     method: 'PATCH',
     body: JSON.stringify({ status }),
-  }).then(() => refreshPublicCatalog()));
+  });
+  await refreshPublicCatalog();
 }
 
-export function syncReviewDelete(id: string): void {
-  if (!connected || !getAdminToken()) return;
-  quiet(api(`/api/admin/reviews/${id}`, { method: 'DELETE' }));
+export async function syncReviewDelete(id: string): Promise<void> {
+  await requireAdminBackend();
+  await api(`/api/admin/reviews/${id}`, { method: 'DELETE' });
 }
 
 export async function uploadImage(file: File): Promise<string | null> {
-  if (!connected || !getAdminToken()) return null;
+  await requireAdminBackend();
   const formData = new FormData();
   formData.append('file', file);
   const headers = new Headers();
@@ -274,9 +422,26 @@ export async function uploadImage(file: File): Promise<string | null> {
     headers,
     body: formData,
   });
-  if (!response.ok) {
-    throw new ApiError('Image upload failed', response.status);
-  }
-  const data = (await response.json()) as { url?: string };
+  const text = await response.text();
+  const data = text ? JSON.parse(text) as { url?: string; error?: string } : {};
+  if (!response.ok) throw new ApiError(data.error || 'Image upload failed', response.status);
   return data.url || null;
+}
+
+export async function uploadReviewImage(file: File): Promise<string> {
+  if (!connected && !(await connectBackend())) {
+    throw new ApiError('Backend is not connected. Please retry image upload when it is available.', 503);
+  }
+  const formData = new FormData();
+  formData.append('file', file);
+  const response = await fetch(`${API_BASE}/api/reviews/images`, {
+    method: 'POST',
+    body: formData,
+  });
+  const text = await response.text();
+  const data = text ? JSON.parse(text) as { url?: string; error?: string } : {};
+  if (!response.ok || !data.url) {
+    throw new ApiError(data.error || 'Review image upload failed', response.status);
+  }
+  return data.url;
 }

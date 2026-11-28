@@ -3,6 +3,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { settingsService } from '../../services/settingsService';
 import { StoreSettings } from '../../types';
 import { setItem, STORAGE_KEYS } from '../../utilities/storage';
+import { updateAdminProfile } from '../../services/backend';
 import { useToast } from '../../context/ToastContext';
 import { useAdminAuth } from '../../context/AdminAuthContext';
 import { useLanguage } from '../../context/LanguageContext';
@@ -20,11 +21,12 @@ export const AdminSettingsPage: React.FC = () => {
   // Admin Profile Fields
   const [adminName, setAdminName] = useState(adminUser?.name || 'Irfan Khan Shahil');
   const [adminEmail, setAdminEmail] = useState(adminUser?.email || 'admin@quantumtech.com');
+  const [isSaving, setIsSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<'store' | 'hero' | 'payment' | 'social' | 'profile'>('store');
 
   const { showToast } = useToast();
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (settings.deliveryChargeInsideDhaka < 0 || settings.deliveryChargeOutsideDhaka < 0) {
@@ -37,20 +39,27 @@ export const AdminSettingsPage: React.FC = () => {
       return;
     }
 
-    // Save Store Settings using settingsService
-    settingsService.saveSettings(settings);
+    setIsSaving(true);
+    try {
+      if (activeTab === 'profile') {
+        if (!adminUser) throw new Error('Administrator session is unavailable. Please sign in again.');
+        const updated = await updateAdminProfile({ name: adminName.trim(), email: adminEmail.trim() });
+        setItem(STORAGE_KEYS.ADMIN_SESSION, {
+          ...adminUser,
+          name: updated.name,
+          email: updated.email,
+        });
+        window.dispatchEvent(new Event('quantum_auth_updated'));
+      } else {
+        await settingsService.saveSettings(settings);
+      }
 
-    // Save updated admin profile session if changed
-    if (adminUser) {
-      const updatedUser = {
-        ...adminUser,
-        name: adminName.trim(),
-        email: adminEmail.trim(),
-      };
-      setItem(STORAGE_KEYS.ADMIN_SESSION, updatedUser);
+      showToast(t.admin.settings.saveSuccess, 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Failed to save store settings.', 'error');
+    } finally {
+      setIsSaving(false);
     }
-
-    showToast(t.admin.settings.saveSuccess, 'success');
   };
 
   return (
@@ -994,14 +1003,17 @@ export const AdminSettingsPage: React.FC = () => {
         {/* Save Changes Floating Action Bar */}
         <div className="p-4 rounded-2xl bg-surface border border-border shadow-xs flex items-center justify-between">
           <span className="caption-3 text-muted">
-            All configuration updates immediately synchronize to customer pages.
+            {activeTab === 'profile'
+              ? 'Administrator profile changes are saved to the backend.'
+              : 'Store settings are saved to the backend before success is confirmed.'}
           </span>
           <button
             type="submit"
-            className="btn-base bg-quantum text-white hover:bg-quantum-hover button-md shadow-sm font-semibold px-6"
+            disabled={isSaving}
+            className="btn-base bg-quantum text-white hover:bg-quantum-hover button-md shadow-sm font-semibold px-6 disabled:opacity-60"
           >
-            <FontAwesomeIcon icon={Icons.check} className="h-4 w-4" />
-            <span>Save Settings</span>
+            <FontAwesomeIcon icon={isSaving ? Icons.spinner : Icons.check} className={`h-4 w-4 ${isSaving ? 'animate-spin' : ''}`} />
+            <span>{activeTab === 'profile' ? 'Save Profile' : 'Save Settings'}</span>
           </button>
         </div>
       </form>

@@ -13,6 +13,8 @@ import { isValidBangladeshPhone, isValidTrxId, isValidName, isValidAddress } fro
 import { Icons } from '../utilities/icons';
 import { DeliveryArea, PaymentMethod, Coupon } from '../types';
 import { Breadcrumb } from '../components/Breadcrumb';
+import { customerAuthService } from '../services/customerAuthService';
+import { ApiError, isBackendConnected } from '../services/backend';
 
 export const CheckoutPage: React.FC = () => {
   const { items, subtotal, clearCart } = useCart();
@@ -21,10 +23,12 @@ export const CheckoutPage: React.FC = () => {
   const navigate = useNavigate();
 
   // Form states
-  const [fullName, setFullName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [area, setArea] = useState<DeliveryArea>('Inside Dhaka');
-  const [address, setAddress] = useState('');
+  const [fullName, setFullName] = useState(() => customerAuthService.getSession()?.name || '');
+  const [phone, setPhone] = useState(() => customerAuthService.getSession()?.phone || '');
+  const [area, setArea] = useState<DeliveryArea>(
+    () => customerAuthService.getSession()?.deliveryArea || 'Inside Dhaka'
+  );
+  const [address, setAddress] = useState(() => customerAuthService.getSession()?.address || '');
   const [note, setNote] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('COD');
   const [senderNumber, setSenderNumber] = useState('');
@@ -33,7 +37,9 @@ export const CheckoutPage: React.FC = () => {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [storeSettings, setStoreSettings] = useState(() => settingsService.getSettings());
   const [serverQuote, setServerQuote] = useState<ServerCartQuote | null>(null);
-  const [, setPaymentMethodsLive] = useState<PaymentMethodInfo[]>([]);
+  const [quoteError, setQuoteError] = useState('');
+  const [backendReady, setBackendReady] = useState(() => isBackendConnected());
+  const [paymentMethodsLive, setPaymentMethodsLive] = useState<PaymentMethodInfo[]>([]);
 
   // Coupon state
   const [couponInput, setCouponInput] = useState('');
@@ -41,6 +47,13 @@ export const CheckoutPage: React.FC = () => {
   const [couponDiscount, setCouponDiscount] = useState<number>(0);
   const [couponError, setCouponError] = useState<string>('');
   const [couponSuccess, setCouponSuccess] = useState<string>('');
+  const [validatingCoupon, setValidatingCoupon] = useState(false);
+
+  useEffect(() => {
+    const updateConnection = () => setBackendReady(isBackendConnected());
+    window.addEventListener('quantum_backend_connection_updated', updateConnection);
+    return () => window.removeEventListener('quantum_backend_connection_updated', updateConnection);
+  }, []);
 
   useEffect(() => {
     const handleSync = () => setStoreSettings(settingsService.getSettings());
@@ -49,20 +62,71 @@ export const CheckoutPage: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    void orderService.getPaymentMethodsLive().then((methods) => {
-      if (methods.length > 0) setPaymentMethodsLive(methods);
+    const session = customerAuthService.getSession();
+    if (!session) return;
+
+    let cancelled = false;
+    void customerAuthService.getProfile().then((profile) => {
+      if (cancelled) return;
+      setFullName(profile.name);
+      setPhone(profile.phone);
+      if (profile.deliveryArea) setArea(profile.deliveryArea);
+      if (profile.address) setAddress(profile.address);
+    }).catch((error: unknown) => {
+      if (cancelled) return;
+      if (error instanceof ApiError && error.status === 401) {
+        customerAuthService.logout();
+        showToast(
+          language === 'bn'
+            ? 'সেশন শেষ হয়েছে। সংরক্ষিত ঠিকানা লোড করা যায়নি; অতিথি হিসেবে অর্ডার চালিয়ে যেতে পারেন।'
+            : 'Your session expired. Saved details could not be loaded; you can continue as a guest.',
+          'warning'
+        );
+      } else if (!session.address || !session.deliveryArea) {
+        showToast(
+          language === 'bn'
+            ? 'সংরক্ষিত ঠিকানা লোড করা যায়নি। অনুগ্রহ করে চেকআউটে ঠিকানা লিখুন।'
+            : 'Could not load your saved address. Please enter it at checkout.',
+          'warning'
+        );
+      }
     });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
+
+  useEffect(() => {
+    if (!backendReady) return;
+    void orderService.getPaymentMethodsLive()
+      .then(setPaymentMethodsLive)
+      .catch((error: unknown) => showToast(error instanceof Error ? error.message : 'Failed to load payment options.', 'error'));
+  }, [backendReady, showToast]);
+
+  const getLivePaymentMethod = (code: PaymentMethod) =>
+    paymentMethodsLive.find((method) => method.code === code);
+  const isPaymentMethodUnavailable = (code: PaymentMethod) =>
+    getLivePaymentMethod(code)?.available === false;
+
+  useEffect(() => {
+    if (isPaymentMethodUnavailable(paymentMethod)) setPaymentMethod('COD');
+  }, [paymentMethod, paymentMethodsLive]);
 
   useEffect(() => {
     if (items.length === 0) {
       setServerQuote(null);
+      setQuoteError('');
       return;
     }
+    setServerQuote(null);
+    setQuoteError('');
     void cartService.validateCartLive(items, area).then((quote) => {
-      if (quote) setServerQuote(quote);
+      setServerQuote(quote);
+    }).catch((error: unknown) => {
+      setQuoteError(error instanceof Error ? error.message : 'Unable to validate your cart with the backend.');
     });
-  }, [items, area]);
+  }, [items, area, backendReady]);
 
   const effectiveSubtotal = serverQuote ? serverQuote.subtotal : subtotal;
   const deliveryCharge =
@@ -73,7 +137,7 @@ export const CheckoutPage: React.FC = () => {
       : storeSettings.deliveryChargeOutsideDhaka;
   const totalPayable = Math.max(0, effectiveSubtotal + deliveryCharge - couponDiscount);
 
-  const handleApplyCoupon = (e?: React.FormEvent) => {
+  const handleApplyCoupon = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setCouponError('');
     setCouponSuccess('');
@@ -82,18 +146,23 @@ export const CheckoutPage: React.FC = () => {
       return;
     }
 
-    const result = promotionService.validateCoupon(couponInput.trim(), items, phone.trim());
-    if (result.valid && result.coupon) {
-      setAppliedCoupon(result.coupon);
-      setCouponDiscount(result.discountAmount);
-      setCouponSuccess(
-        language === 'bn' ? 'কুপন সফলভাবে যুক্ত হয়েছে!' : 'Coupon applied successfully!'
-      );
-      setCouponError('');
-    } else {
-      setAppliedCoupon(null);
-      setCouponDiscount(0);
-      setCouponError(result.error || (language === 'bn' ? 'অকার্যকর কুপন কোড।' : 'Invalid coupon code.'));
+    setValidatingCoupon(true);
+    try {
+      const result = await promotionService.validateCouponLive(couponInput.trim(), items, phone.trim());
+      if (result.valid && result.coupon) {
+        setAppliedCoupon(result.coupon);
+        setCouponDiscount(result.discountAmount);
+        setCouponSuccess(
+          language === 'bn' ? 'কুপন সফলভাবে যুক্ত হয়েছে!' : 'Coupon applied successfully!'
+        );
+        setCouponError('');
+      } else {
+        setAppliedCoupon(null);
+        setCouponDiscount(0);
+        setCouponError(result.error || (language === 'bn' ? 'অকার্যকর কুপন কোড।' : 'Invalid coupon code.'));
+      }
+    } finally {
+      setValidatingCoupon(false);
     }
   };
 
@@ -171,6 +240,16 @@ export const CheckoutPage: React.FC = () => {
   const handlePlaceOrder = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    if (!isBackendConnected() || !serverQuote || !serverQuote.valid) {
+      showToast(
+        quoteError || (language === 'bn'
+          ? 'অর্ডার দেওয়ার আগে ব্যাকএন্ডে কার্ট যাচাই সম্পন্ন হতে হবে।'
+          : 'Your cart must be validated by the backend before placing an order.'),
+        'error'
+      );
+      return;
+    }
+
     if (!validateForm()) {
       showToast(
         language === 'bn'
@@ -216,7 +295,7 @@ export const CheckoutPage: React.FC = () => {
         area,
         address: address.trim(),
         note: note.trim() || undefined,
-        subtotal,
+        subtotal: serverQuote.subtotal,
         deliveryCharge,
         total: totalPayable,
         paymentMethod,
@@ -235,6 +314,19 @@ export const CheckoutPage: React.FC = () => {
         couponDiscount: couponDiscount > 0 ? couponDiscount : undefined,
         items: orderItems,
       });
+
+      if (customerAuthService.getSession() && isBackendConnected()) {
+        try {
+          await customerAuthService.updateProfile({ deliveryArea: area, address: address.trim() });
+        } catch {
+          showToast(
+            language === 'bn'
+              ? 'অর্ডার হয়েছে, তবে সংরক্ষিত ঠিকানা আপডেট করা যায়নি। অ্যাকাউন্ট থেকে আবার সংরক্ষণ করুন।'
+              : 'Order placed, but your saved address could not be updated. You can save it from your account.',
+            'warning'
+          );
+        }
+      }
 
       // Clear shared cart state
       clearCart();
@@ -481,8 +573,9 @@ export const CheckoutPage: React.FC = () => {
               {/* Option 2: bKash (Manual Send Money) */}
               <button
                 type="button"
+                disabled={isPaymentMethodUnavailable('bKash')}
                 onClick={() => setPaymentMethod('bKash')}
-                className={`p-4 rounded-xl border text-left flex items-start gap-3 transition-all ${
+                className={`p-4 rounded-xl border text-left flex items-start gap-3 transition-all disabled:cursor-not-allowed disabled:opacity-50 ${
                   paymentMethod === 'bKash'
                     ? 'border-pink-600 bg-pink-50 text-pink-700 font-semibold ring-2 ring-pink-200'
                     : 'border-border bg-surface text-ink hover:bg-surface-alt'
@@ -496,7 +589,14 @@ export const CheckoutPage: React.FC = () => {
                   {paymentMethod === 'bKash' && <div className="h-1.5 w-1.5 rounded-full bg-white" />}
                 </div>
                 <div>
-                  <span className="title-4 font-semibold block">bKash (Send Money - Personal)</span>
+                  <span className="title-4 font-semibold block">
+                    {getLivePaymentMethod('bKash')?.name || 'bKash'} (Send Money - Personal)
+                    {isPaymentMethodUnavailable('bKash') && (
+                      <span className="ml-2 text-xs font-normal">
+                        {language === 'bn' ? 'অনুপলব্ধ' : 'Unavailable'}
+                      </span>
+                    )}
+                  </span>
                   <span className="caption-4 text-muted block mt-0.5">
                     {language === 'bn'
                       ? 'ম্যানুয়ালি bKash নম্বরে সেন্ড মানি করুন ও নিচে TrxID দিন'
@@ -508,8 +608,9 @@ export const CheckoutPage: React.FC = () => {
               {/* Option 3: Nagad (Manual Send Money) */}
               <button
                 type="button"
+                disabled={isPaymentMethodUnavailable('Nagad')}
                 onClick={() => setPaymentMethod('Nagad')}
-                className={`p-4 rounded-xl border text-left flex items-start gap-3 transition-all ${
+                className={`p-4 rounded-xl border text-left flex items-start gap-3 transition-all disabled:cursor-not-allowed disabled:opacity-50 ${
                   paymentMethod === 'Nagad'
                     ? 'border-orange-600 bg-orange-50 text-orange-700 font-semibold ring-2 ring-orange-200'
                     : 'border-border bg-surface text-ink hover:bg-surface-alt'
@@ -523,7 +624,14 @@ export const CheckoutPage: React.FC = () => {
                   {paymentMethod === 'Nagad' && <div className="h-1.5 w-1.5 rounded-full bg-white" />}
                 </div>
                 <div>
-                  <span className="title-4 font-semibold block">Nagad (Send Money - Personal)</span>
+                  <span className="title-4 font-semibold block">
+                    {getLivePaymentMethod('Nagad')?.name || 'Nagad'} (Send Money - Personal)
+                    {isPaymentMethodUnavailable('Nagad') && (
+                      <span className="ml-2 text-xs font-normal">
+                        {language === 'bn' ? 'অনুপলব্ধ' : 'Unavailable'}
+                      </span>
+                    )}
+                  </span>
                   <span className="caption-4 text-muted block mt-0.5">
                     {language === 'bn'
                       ? 'ম্যানুয়ালি Nagad নম্বরে সেন্ড মানি করুন ও নিচে TrxID দিন'
@@ -567,8 +675,8 @@ export const CheckoutPage: React.FC = () => {
                     {paymentMethod === 'bKash' ? 'bKash' : 'Nagad'} Personal Number:{' '}
                     <span className="font-mono tracking-wide underline">
                       {paymentMethod === 'bKash'
-                        ? storeSettings.bKashNumber
-                        : storeSettings.nagadNumber}
+                        ? getLivePaymentMethod(paymentMethod)?.merchantNumber || storeSettings.bKashNumber
+                        : getLivePaymentMethod(paymentMethod)?.merchantNumber || storeSettings.nagadNumber}
                     </span>
                   </p>
                   <p className="font-semibold text-xs mb-2">
@@ -578,41 +686,46 @@ export const CheckoutPage: React.FC = () => {
                     </span>
                   </p>
 
-                  <ol className="text-xs space-y-1 pl-4 list-decimal">
-                    <li>
-                      {language === 'bn'
-                        ? `আপনার ${paymentMethod} অ্যাপ ওপেন করুন অথবা ডায়াল করুন।`
-                        : `Open your ${paymentMethod} App or dial USSD.`}
-                    </li>
-                    <li>
-                      {language === 'bn'
-                        ? 'মেনু থেকে "Send Money" (সেন্ড মানি) অপশন বাছাই করুন।'
-                        : 'Select "Send Money" (Personal).'}
-                    </li>
-                    <li>
-                      {language === 'bn'
-                        ? `প্রাপক নম্বর দিন: ${
-                            paymentMethod === 'bKash'
-                              ? storeSettings.bKashNumber
-                              : storeSettings.nagadNumber
-                          }`
-                        : `Enter recipient number: ${
-                            paymentMethod === 'bKash'
-                              ? storeSettings.bKashNumber
-                              : storeSettings.nagadNumber
-                          }`}
-                    </li>
-                    <li>
-                      {language === 'bn'
-                        ? `সঠিক টাকার পরিমাণ দিন: ${formatCurrency(totalPayable, language)}`
-                        : `Enter amount: ${formatCurrency(totalPayable, language)}`}
-                    </li>
-                    <li>
-                      {language === 'bn'
-                        ? 'লেনদেন সম্পন্ন করে মেসেজ থেকে Transaction ID (TrxID) কপি করুন এবং নিচের ঘরে লিখুন।'
-                        : 'Complete payment and copy the Transaction ID (TrxID) into the field below.'}
-                    </li>
-                  </ol>
+                  {getLivePaymentMethod(paymentMethod) ? (
+                    <ol className="text-xs space-y-1 pl-4 list-decimal">
+                      {(language === 'bn'
+                        ? getLivePaymentMethod(paymentMethod)?.instructionsBn
+                        : getLivePaymentMethod(paymentMethod)?.instructions
+                      )?.map((instruction, index) => <li key={index}>{instruction}</li>)}
+                    </ol>
+                  ) : (
+                    <ol className="text-xs space-y-1 pl-4 list-decimal">
+                      <li>
+                        {language === 'bn'
+                          ? `আপনার ${paymentMethod} অ্যাপ ওপেন করুন অথবা ডায়াল করুন।`
+                          : `Open your ${paymentMethod} App or dial USSD.`}
+                      </li>
+                      <li>
+                        {language === 'bn'
+                          ? 'মেনু থেকে "Send Money" (সেন্ড মানি) অপশন বাছাই করুন।'
+                          : 'Select "Send Money" (Personal).'}
+                      </li>
+                      <li>
+                        {language === 'bn'
+                          ? `প্রাপক নম্বর দিন: ${
+                              paymentMethod === 'bKash' ? storeSettings.bKashNumber : storeSettings.nagadNumber
+                            }`
+                          : `Enter recipient number: ${
+                              paymentMethod === 'bKash' ? storeSettings.bKashNumber : storeSettings.nagadNumber
+                            }`}
+                      </li>
+                      <li>
+                        {language === 'bn'
+                          ? `সঠিক টাকার পরিমাণ দিন: ${formatCurrency(totalPayable, language)}`
+                          : `Enter amount: ${formatCurrency(totalPayable, language)}`}
+                      </li>
+                      <li>
+                        {language === 'bn'
+                          ? 'লেনদেন সম্পন্ন করে মেসেজ থেকে Transaction ID (TrxID) কপি করুন এবং নিচের ঘরে লিখুন।'
+                          : 'Complete payment and copy the Transaction ID (TrxID) into the field below.'}
+                      </li>
+                    </ol>
+                  )}
                 </div>
 
                 {/* Sender Mobile Number */}
@@ -764,10 +877,13 @@ export const CheckoutPage: React.FC = () => {
                 <button
                   type="button"
                   data-testid="apply-coupon-btn"
-                  onClick={() => handleApplyCoupon()}
+                  onClick={() => void handleApplyCoupon()}
+                  disabled={validatingCoupon}
                   className="btn-base px-4 py-2 rounded-xl bg-ink text-white hover:bg-slate-800 text-xs font-semibold"
                 >
-                  {language === 'bn' ? 'প্রয়োগ' : 'Apply'}
+                  {validatingCoupon
+                    ? (language === 'bn' ? 'যাচাই হচ্ছে...' : 'Checking...')
+                    : (language === 'bn' ? 'প্রয়োগ' : 'Apply')}
                 </button>
               </div>
             ) : (
@@ -810,7 +926,7 @@ export const CheckoutPage: React.FC = () => {
           <div className="pt-4 border-t border-border flex flex-col gap-2.5">
             <div className="flex justify-between text-sm">
               <span className="text-muted">{t.cart.subtotal}</span>
-              <span className="font-semibold text-ink">{formatCurrency(subtotal, language)}</span>
+              <span className="font-semibold text-ink">{formatCurrency(effectiveSubtotal, language)}</span>
             </div>
 
             <div className="flex justify-between text-sm">
@@ -836,11 +952,18 @@ export const CheckoutPage: React.FC = () => {
           </div>
 
           {/* Place Order CTA Button */}
+          {!serverQuote?.valid && (
+            <p role="status" className="caption-3 text-center text-amber-700">
+              {serverQuote?.issues.join(' ') || quoteError || (backendReady
+                ? (language === 'bn' ? 'ব্যাকএন্ডে কার্ট যাচাই হচ্ছে…' : 'Validating cart with the backend…')
+                : (language === 'bn' ? 'ব্যাকএন্ড সংযোগের জন্য অপেক্ষা করা হচ্ছে…' : 'Waiting for the backend connection…'))}
+            </p>
+          )}
           <button
             type="submit"
             data-testid="place-order-btn"
-            disabled={isSubmitting}
-            className="btn-base w-full bg-quantum text-white hover:bg-quantum-hover active:scale-98 button-lg shadow-sm h-12 mt-2 font-semibold"
+            disabled={isSubmitting || !backendReady || !serverQuote?.valid}
+            className="btn-base w-full bg-quantum text-white hover:bg-quantum-hover active:scale-98 button-lg shadow-sm h-12 mt-2 font-semibold disabled:opacity-60"
           >
             {isSubmitting ? (
               <span className="flex items-center gap-2">

@@ -1,9 +1,17 @@
 import { Order, OrderStatus, PaymentStatus, OrderItem, Language } from '../types';
-import { initialOrders } from '../data/mockData';
 import { getItem, setItem, STORAGE_KEYS } from '../utilities/storage';
-import { productService } from './productService';
+import { isSeedCatalogProductId, productService } from './productService';
 import { promotionService } from './promotionService';
-import { api, isBackendConnected, mapPublicOrder, rememberOrder, refreshPublicCatalog } from './backend';
+import { api, connectBackend, isBackendConnected, mapPublicOrder, rememberOrder, refreshPublicCatalog } from './backend';
+
+const legacyDemoOrderIds = new Set(['ord-01', 'ord-02']);
+
+function getStoredOrders(): Order[] {
+  const stored = getItem<Order[]>(STORAGE_KEYS.ORDERS, []);
+  const realOrders = stored.filter((order) => !legacyDemoOrderIds.has(order.id));
+  if (realOrders.length !== stored.length) setItem(STORAGE_KEYS.ORDERS, realOrders);
+  return realOrders;
+}
 
 export interface PaymentMethodInfo {
   code: 'COD' | 'bKash' | 'Nagad';
@@ -18,7 +26,7 @@ export interface PaymentMethodInfo {
 
 export const orderService = {
   getOrders(): Order[] {
-    const orders = getItem<Order[]>(STORAGE_KEYS.ORDERS, initialOrders);
+    const orders = getStoredOrders();
     // Sort newest first
     return [...orders].sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
@@ -70,11 +78,11 @@ export const orderService = {
   },
 
   async submitOrder(orderData: Omit<Order, 'id' | 'orderNumber' | 'createdAt' | 'updatedAt' | 'notificationStatus'>): Promise<Order> {
-    if (!isBackendConnected()) {
-      return this.createOrder(orderData);
+    if (orderData.items.some((item) => isSeedCatalogProductId(item.productId))) {
+      throw new Error('Sample products are for preview only and cannot be ordered.');
     }
-    if (orderData.couponCode) {
-      throw new Error('Coupon codes are not accepted by the server yet. Remove the coupon and place the order again.');
+    if (!isBackendConnected()) {
+      throw new Error('Checkout is unavailable because the backend is not connected. Please try again shortly.');
     }
     const raw = await api<Record<string, unknown>>('/api/orders', {
       method: 'POST',
@@ -85,9 +93,14 @@ export const orderService = {
         area: orderData.area,
         address: orderData.address,
         note: orderData.note,
+        subtotal: orderData.subtotal,
+        deliveryCharge: orderData.deliveryCharge,
+        total: orderData.total,
         paymentMethod: orderData.paymentMethod,
         trxId: orderData.trxId,
         senderNumber: orderData.senderNumber,
+        couponCode: orderData.couponCode,
+        couponDiscount: orderData.couponDiscount,
         language: orderData.language,
         items: orderData.items.map((item) => ({
           productId: item.productId,
@@ -104,7 +117,7 @@ export const orderService = {
 
   async trackOrderLive(orderNumber: string, phone: string): Promise<{ success: boolean; order?: Order; error?: string }> {
     if (!isBackendConnected()) {
-      return this.trackOrder(orderNumber, phone);
+      return { success: false, error: 'Order tracking is unavailable because the backend is not connected.' };
     }
     try {
       const params = new URLSearchParams({ orderNumber, phone });
@@ -124,8 +137,8 @@ export const orderService = {
     note?: string,
     reason?: string
   ): Promise<{ success: boolean; error?: string; order?: Order }> {
-    if (!isBackendConnected()) {
-      return this.updateOrderStatus(orderId, toStatus, changedBy, note, reason);
+    if (!isBackendConnected() && !(await connectBackend())) {
+      return { success: false, error: 'Order updates are unavailable because the backend is not connected.' };
     }
     try {
       const order = await api<Order>(`/api/admin/orders/${orderId}/status`, {
@@ -146,8 +159,8 @@ export const orderService = {
     changedBy: string = 'Admin',
     note?: string
   ): Promise<{ success: boolean; error?: string; order?: Order }> {
-    if (!isBackendConnected()) {
-      return this.verifyPayment(orderId, status, changedBy, note);
+    if (!isBackendConnected() && !(await connectBackend())) {
+      return { success: false, error: 'Payment updates are unavailable because the backend is not connected.' };
     }
     try {
       const order = await api<Order>(`/api/admin/orders/${orderId}/payment`, {
@@ -162,18 +175,13 @@ export const orderService = {
   },
 
   async getPaymentMethodsLive(): Promise<PaymentMethodInfo[]> {
-    if (!isBackendConnected()) return [];
-    try {
-      return await api<PaymentMethodInfo[]>('/api/payments/methods');
-    } catch {
-      return [];
-    }
+    if (!isBackendConnected()) throw new Error('Payment options are unavailable because the backend is not connected.');
+    return api<PaymentMethodInfo[]>('/api/payments/methods');
   },
 
   async resubmitPaymentLive(
     orderNumber: string,
     phone: string,
-    paymentMethod: 'bKash' | 'Nagad',
     trxId: string,
     senderNumber: string,
     language: Language = 'en'
@@ -184,7 +192,7 @@ export const orderService = {
     try {
       const raw = await api<Record<string, unknown>>(`/api/orders/${encodeURIComponent(orderNumber)}/payment`, {
         method: 'POST',
-        body: JSON.stringify({ phone, paymentMethod, trxId, senderNumber }),
+        body: JSON.stringify({ phone, trxId, senderNumber }),
       });
       const order = mapPublicOrder(raw, language);
       rememberOrder(order);
@@ -195,16 +203,15 @@ export const orderService = {
   },
 
   async getDashboardStatsLive(): Promise<Record<string, unknown> | null> {
-    if (!isBackendConnected()) return null;
-    try {
-      return await api<Record<string, unknown>>('/api/admin/dashboard');
-    } catch {
-      return null;
-    }
+    if (!isBackendConnected()) throw new Error('Dashboard data is unavailable because the backend is not connected.');
+    return api<Record<string, unknown>>('/api/admin/dashboard');
   },
 
   createOrder(orderData: Omit<Order, 'id' | 'orderNumber' | 'createdAt' | 'updatedAt' | 'notificationStatus'>): Order {
-    const orders = getItem<Order[]>(STORAGE_KEYS.ORDERS, initialOrders);
+    if (orderData.items.some((item) => isSeedCatalogProductId(item.productId))) {
+      throw new Error('Sample products are for preview only and cannot be ordered.');
+    }
+    const orders = getStoredOrders();
     const dateStr = new Date().toISOString().slice(2, 10).replace(/-/g, '');
     const count = (orders.length + 1).toString().padStart(4, '0');
     const orderNumber = `QT-${dateStr}-${count}`;
@@ -367,7 +374,7 @@ export const orderService = {
     note?: string,
     reason?: string
   ): { success: boolean; error?: string; order?: Order } {
-    const orders = getItem<Order[]>(STORAGE_KEYS.ORDERS, initialOrders);
+    const orders = getStoredOrders();
     const order = orders.find(o => o.id === orderId);
 
     if (!order) {
@@ -470,7 +477,7 @@ export const orderService = {
     changedBy: string = 'Admin',
     note?: string
   ): { success: boolean; error?: string; order?: Order } {
-    const orders = getItem<Order[]>(STORAGE_KEYS.ORDERS, initialOrders);
+    const orders = getStoredOrders();
     const order = orders.find(o => o.id === orderId);
 
     if (!order) {

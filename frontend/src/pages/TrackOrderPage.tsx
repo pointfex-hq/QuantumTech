@@ -11,6 +11,7 @@ import { PaymentMethodInfo } from '../services/orderService';
 import { Icons } from '../utilities/icons';
 import { formatCurrency, formatNumber } from '../utilities/currency';
 import { Breadcrumb } from '../components/Breadcrumb';
+import { isBackendConnected } from '../services/backend';
 
 export const TrackOrderPage: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -19,16 +20,23 @@ export const TrackOrderPage: React.FC = () => {
 
   const [orderNumber, setOrderNumber] = useState(searchParams.get('order') || '');
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodInfo[]>([]);
+  const [backendReady, setBackendReady] = useState(() => isBackendConnected());
   const [trxId, setTrxId] = useState('');
   const [senderNumber, setSenderNumber] = useState('');
   const [isResubmitting, setIsResubmitting] = useState(false);
   // Load payment methods on mount (for checking requirements)
   useEffect(() => {
-    void (async () => {
-      const methods = await orderService.getPaymentMethodsLive();
-      setPaymentMethods(methods);
-    })();
+    const updateConnection = () => setBackendReady(isBackendConnected());
+    window.addEventListener('quantum_backend_connection_updated', updateConnection);
+    return () => window.removeEventListener('quantum_backend_connection_updated', updateConnection);
   }, []);
+
+  useEffect(() => {
+    if (!backendReady) return;
+    void orderService.getPaymentMethodsLive()
+      .then(setPaymentMethods)
+      .catch((error: unknown) => showToast(error instanceof Error ? error.message : 'Failed to load payment options.', 'error'));
+  }, [backendReady, showToast]);
 
   const handleResubmit = async () => {
     if (!trackedOrder) return;
@@ -36,7 +44,6 @@ export const TrackOrderPage: React.FC = () => {
     const result = await orderService.resubmitPaymentLive(
       trackedOrder.orderNumber,
       trackedOrder.phone,
-      trackedOrder.paymentMethod as any,
       trxId,
       senderNumber,
       trackedOrder.language ?? 'en'
@@ -439,6 +446,16 @@ export const TrackOrderPage: React.FC = () => {
                   <h3 className="title-4 font-semibold mb-4 text-ink">
                     {language === 'bn' ? 'পেমেন্ট রিসাবমিট করুন' : 'Resubmit Payment'}
                   </h3>
+                  {trackedOrder.paymentStatus === 'Failed' && (
+                    <div
+                      role="status"
+                      className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900"
+                    >
+                      {language === 'bn'
+                        ? 'আপনার আগের পেমেন্ট নিশ্চিত করা যায়নি। TxID বা সেন্ডার নম্বরে ভুল থাকলে সঠিক তথ্য দিয়ে নিচে আবার জমা দিন। নতুন তথ্য যাচাইয়ের জন্য পাঠানো হবে।'
+                        : 'Your previous payment confirmation could not be verified. If the TxID or sender number was entered incorrectly, submit the corrected details below for another review.'}
+                    </div>
+                  )}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                     <div>
                       <label className="caption-3 font-medium text-ink block mb-1.5">

@@ -8,6 +8,7 @@ import { Order, OrderStatus, PaymentStatus } from '../../types';
 import { Icons } from '../../utilities/icons';
 import { formatCurrency, formatNumber } from '../../utilities/currency';
 import { Modal } from '../../components/Modal';
+import { InvoicePrint } from '../../components/InvoicePrint';
 
 export const AdminOrderDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -96,8 +97,14 @@ export const AdminOrderDetailPage: React.FC = () => {
 
   const isPendingOld = order.status === 'Pending' && (Date.now() - new Date(order.createdAt).getTime() > 24 * 60 * 60 * 1000);
   const isMobilePayment = order.paymentMethod === 'bKash' || order.paymentMethod === 'Nagad';
+  const hasResubmittedPayment = order.paymentStatus === 'Verification pending'
+    && (order.history || []).some(
+      (entry) => entry.changedBy === 'Customer' && entry.note?.startsWith('Customer resubmitted ')
+    );
 
   return (
+    <>
+    <InvoicePrint order={order} />
     <div className="flex flex-col gap-6 max-w-6xl mx-auto">
       {/* Top Breadcrumb & Action Navigation */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-border">
@@ -338,6 +345,15 @@ export const AdminOrderDetailPage: React.FC = () => {
               </span>
             </div>
 
+            {hasResubmittedPayment && (
+              <div
+                role="status"
+                className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900"
+              >
+                Customer resubmitted corrected payment details. Review the latest transaction ID and sender number below.
+              </div>
+            )}
+
             <div className="p-3.5 rounded-xl bg-surface-alt border border-border flex flex-col gap-2 text-xs">
               <div className="flex justify-between">
                 <span className="text-muted">Method:</span>
@@ -528,5 +544,6 @@ export const AdminOrderDetailPage: React.FC = () => {
         </Modal>
       )}
     </div>
+    </>
   );
 };

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { productService } from '../../services/productService';
+import { categoryService } from '../../services/categoryService';
 import { useToast } from '../../context/ToastContext';
 import { Product, ProductVariant, Category } from '../../types';
 import { Icons } from '../../utilities/icons';
@@ -16,8 +17,14 @@ export const AdminProductFormPage: React.FC<AdminProductFormPageProps> = ({ isEd
   const navigate = useNavigate();
   const { showToast } = useToast();
 
-  const [categories, setCategories] = useState<Category[]>(() => productService.getCategories());
+  const [categories, setCategories] = useState<Category[]>(() => categoryService.getAdminCategories());
   const [loading, setLoading] = useState(isEdit);
+
+  useEffect(() => {
+    const handleCategoriesUpdated = () => setCategories(categoryService.getAdminCategories());
+    window.addEventListener('quantum_categories_updated', handleCategoriesUpdated);
+    return () => window.removeEventListener('quantum_categories_updated', handleCategoriesUpdated);
+  }, []);
 
   // Form Fields
   const [name, setName] = useState('');
@@ -279,7 +286,7 @@ export const AdminProductFormPage: React.FC<AdminProductFormPageProps> = ({ isEd
   };
 
   // Validation & Submit
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const newErrors: Record<string, string> = {};
 
@@ -364,15 +371,18 @@ export const AdminProductFormPage: React.FC<AdminProductFormPageProps> = ({ isEd
       })),
     };
 
-    const saved = productService.saveProduct(productPayload);
-    setIsSubmitting(false);
-
-    showToast(
-      isEdit ? `Product "${saved.name}" updated successfully!` : `New product "${saved.name}" added to catalog!`,
-      'success'
-    );
-
-    navigate('/admin/products');
+    try {
+      const saved = await productService.saveProduct(productPayload);
+      showToast(
+        isEdit ? `Product "${saved.name}" updated successfully!` : `New product "${saved.name}" added to catalog!`,
+        'success'
+      );
+      navigate('/admin/products');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Failed to save product to the backend.', 'error');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   if (loading) {

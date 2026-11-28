@@ -1,20 +1,52 @@
 import { Category, Product } from '../types';
-import { initialCategories, initialProducts } from '../data/mockData';
+import { seedCategories, seedProducts } from '../data/seedData';
 import { getItem, setItem, STORAGE_KEYS } from '../utilities/storage';
 import { syncCategory, syncCategoryOrder } from './backend';
 
-export const categoryService = {
-  getCategories(): Category[] {
-    const categories = getItem<Category[]>(STORAGE_KEYS.CATEGORIES, initialCategories);
-    const products = getItem<Product[]>(STORAGE_KEYS.PRODUCTS, initialProducts).filter(
-      p => p.status !== 'Deleted'
-    );
+const seedProductSlugs = new Map(seedProducts.map((product) => [product.id, product.slug]));
+const seedCategorySlugs = new Map(seedCategories.map((category) => [category.id, category.slug]));
 
-    // Compute live product counts
+function isLegacySeedProduct(product: Product): boolean {
+  const expectedSlug = seedProductSlugs.get(product.id);
+  return expectedSlug !== undefined && expectedSlug === product.slug;
+}
+
+function isLegacySeedCategory(category: Category): boolean {
+  const expectedSlug = seedCategorySlugs.get(category.id);
+  return expectedSlug !== undefined && expectedSlug === category.slug;
+}
+
+export const categoryService = {
+  getAdminCategories(): Category[] {
+    const products = getItem<Product[]>(STORAGE_KEYS.PRODUCTS, []).filter(
+      (product) => product.status !== 'Deleted' && !isLegacySeedProduct(product)
+    );
+    const storedCategories = getItem<Category[]>(STORAGE_KEYS.CATEGORIES, []);
+    return storedCategories
+      .filter((category) =>
+        !isLegacySeedCategory(category)
+        || products.some((product) => product.categoryId === category.id)
+      )
+      .map((category) => ({
+        ...category,
+        productCount: products.filter((product) => product.categoryId === category.id).length,
+      }))
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+  },
+
+  getCategories(): Category[] {
+    const products = getItem<Product[]>(STORAGE_KEYS.PRODUCTS, []).filter(
+      (product) => product.status !== 'Deleted' && !isLegacySeedProduct(product)
+    );
+    const seedCatalogActive = getItem<boolean>(STORAGE_KEYS.SEED_CATALOG_ACTIVE, false)
+      && products.length === 0;
+    const categories = seedCatalogActive ? seedCategories : this.getAdminCategories();
+
     return categories
       .map(cat => ({
         ...cat,
-        productCount: products.filter(p => p.categoryId === cat.id).length,
+        productCount: (seedCatalogActive ? seedProducts : products)
+          .filter(p => p.categoryId === cat.id).length,
       }))
       .sort((a, b) => a.sortOrder - b.sortOrder);
   },
@@ -27,24 +59,23 @@ export const categoryService = {
     return this.getCategories().find(c => c.slug === slug || c.id === slug);
   },
 
-  saveCategory(cat: Category): Category {
-    const all = this.getCategories();
-    const index = all.findIndex(c => c.id === cat.id);
+  async saveCategory(cat: Category): Promise<Category> {
+    const stored = getItem<Category[]>(STORAGE_KEYS.CATEGORIES, []);
+    const index = stored.findIndex(c => c.id === cat.id);
+    const existing = this.getAdminCategories().find(c => c.id === cat.id);
+    const updated = { ...existing, ...cat };
 
-    if (index >= 0) {
-      all[index] = cat;
-    } else {
-      all.push(cat);
-    }
-
-    setItem(STORAGE_KEYS.CATEGORIES, all);
+    const saved = await syncCategory(updated, false, index < 0);
+    const persistedCategory = saved || updated;
+    if (index >= 0) stored[index] = persistedCategory;
+    else stored.push(persistedCategory);
+    setItem(STORAGE_KEYS.CATEGORIES, stored);
     window.dispatchEvent(new Event('quantum_categories_updated'));
-    syncCategory(cat);
-    return cat;
+    return persistedCategory;
   },
 
-  createCategory(data: Omit<Category, 'id'>): Category {
-    const all = this.getCategories();
+  async createCategory(data: Omit<Category, 'id'>): Promise<Category> {
+    const all = this.getAdminCategories();
     const newId = `cat-${Date.now()}`;
     const newCategory: Category = {
       ...data,
@@ -52,15 +83,16 @@ export const categoryService = {
       sortOrder: data.sortOrder || all.length + 1,
     };
 
-    all.push(newCategory);
+    const saved = await syncCategory(newCategory, false, true);
+    const persistedCategory = saved || newCategory;
+    all.push(persistedCategory);
     setItem(STORAGE_KEYS.CATEGORIES, all);
     window.dispatchEvent(new Event('quantum_categories_updated'));
-    syncCategory(newCategory);
-    return newCategory;
+    return persistedCategory;
   },
 
-  updateCategory(id: string, data: Partial<Category>): Category | undefined {
-    const all = this.getCategories();
+  async updateCategory(id: string, data: Partial<Category>): Promise<Category | undefined> {
+    const all = this.getAdminCategories();
     const index = all.findIndex(c => c.id === id);
 
     if (index === -1) return undefined;
@@ -70,26 +102,27 @@ export const categoryService = {
       ...data,
     };
 
-    all[index] = updated;
+    const saved = await syncCategory(updated);
+    const persistedCategory = saved || updated;
+    all[index] = persistedCategory;
     setItem(STORAGE_KEYS.CATEGORIES, all);
     window.dispatchEvent(new Event('quantum_categories_updated'));
-    syncCategory(updated);
-    return updated;
+    return persistedCategory;
   },
 
-  reorderCategories(categories: Category[]): void {
+  async reorderCategories(categories: Category[]): Promise<void> {
     const updated = categories.map((cat, index) => ({
       ...cat,
       sortOrder: index + 1,
     }));
+    await syncCategoryOrder(updated);
     setItem(STORAGE_KEYS.CATEGORIES, updated);
     window.dispatchEvent(new Event('quantum_categories_updated'));
-    syncCategoryOrder(updated);
   },
 
-  deleteCategory(id: string): { success: boolean; error?: string } {
-    const products = getItem<Product[]>(STORAGE_KEYS.PRODUCTS, initialProducts).filter(
-      p => p.status !== 'Deleted'
+  async deleteCategory(id: string): Promise<{ success: boolean; error?: string }> {
+    const products = getItem<Product[]>(STORAGE_KEYS.PRODUCTS, []).filter(
+      p => p.status !== 'Deleted' && !isLegacySeedProduct(p)
     );
     const activeProducts = products.filter(p => p.categoryId === id);
 
@@ -100,11 +133,11 @@ export const categoryService = {
       };
     }
 
-    const removed = this.getCategories().find(c => c.id === id);
-    const all = this.getCategories().filter(c => c.id !== id);
+    const removed = this.getAdminCategories().find(c => c.id === id);
+    const all = this.getAdminCategories().filter(c => c.id !== id);
+    if (removed) await syncCategory(removed, true);
     setItem(STORAGE_KEYS.CATEGORIES, all);
     window.dispatchEvent(new Event('quantum_categories_updated'));
-    if (removed) syncCategory(removed, true);
     return { success: true };
   },
 };

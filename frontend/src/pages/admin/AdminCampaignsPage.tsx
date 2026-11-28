@@ -99,7 +99,7 @@ export const AdminCampaignsPage: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !startDate || !endDate) {
       showToast('Please fill in required fields.', 'error');
@@ -132,31 +132,42 @@ export const AdminCampaignsPage: React.FC = () => {
       showCountdown,
     };
 
-    if (editingCampaign) {
-      promotionService.updateCampaign(editingCampaign.id, campaignData);
-      showToast('Campaign updated successfully!', 'success');
-    } else {
-      promotionService.createCampaign(campaignData);
-      showToast('Campaign created successfully!', 'success');
-    }
-
-    setIsModalOpen(false);
-    loadData();
-  };
-
-  const handleDelete = (id: string, campName: string) => {
-    if (window.confirm(`Delete campaign "${campName}"?`)) {
-      promotionService.deleteCampaign(id);
-      showToast('Campaign deleted.', 'info');
+    try {
+      if (editingCampaign) {
+        await promotionService.updateCampaign(editingCampaign.id, campaignData);
+        showToast('Campaign updated successfully!', 'success');
+      } else {
+        await promotionService.createCampaign(campaignData);
+        showToast('Campaign created successfully!', 'success');
+      }
+      setIsModalOpen(false);
       loadData();
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Failed to save campaign.', 'error');
     }
   };
 
-  const handleToggleStatus = (camp: Campaign) => {
+  const handleDelete = async (id: string, campName: string) => {
+    if (window.confirm(`Delete campaign "${campName}"?`)) {
+      try {
+        await promotionService.deleteCampaign(id);
+        showToast('Campaign deleted.', 'info');
+        loadData();
+      } catch (error) {
+        showToast(error instanceof Error ? error.message : 'Failed to delete campaign.', 'error');
+      }
+    }
+  };
+
+  const handleToggleStatus = async (camp: Campaign) => {
     const newStatus: CampaignStatus = camp.status === 'Paused' ? 'Active' : 'Paused';
-    promotionService.updateCampaign(camp.id, { status: newStatus });
-    showToast(`Campaign ${newStatus.toLowerCase()}.`, 'success');
-    loadData();
+    try {
+      await promotionService.updateCampaign(camp.id, { status: newStatus });
+      showToast(`Campaign ${newStatus.toLowerCase()}.`, 'success');
+      loadData();
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Failed to update campaign.', 'error');
+    }
   };
 
   const filteredCampaigns = campaigns.filter(

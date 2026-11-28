@@ -11,7 +11,23 @@ import { connectBackend } from './services/backend';
 
 export const App: React.FC = () => {
   useEffect(() => {
-    void connectBackend();
+    let timer: number | undefined;
+    let stopped = false;
+    let retryDelay = 5000;
+    const connect = async () => {
+      const connected = await connectBackend();
+      if (!connected && !stopped) {
+        timer = window.setTimeout(() => void connect(), retryDelay);
+        retryDelay = Math.min(retryDelay * 2, 30000);
+      } else if (connected) {
+        retryDelay = 5000;
+      }
+    };
+    void connect();
+    return () => {
+      stopped = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
   }, []);
 
   return (

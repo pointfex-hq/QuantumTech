@@ -7,25 +7,52 @@ import { reviewService } from '../../services/reviewService';
 import { useLanguage } from '../../context/LanguageContext';
 import { Icons } from '../../utilities/icons';
 import { formatCurrency, formatNumber } from '../../utilities/currency';
+import { useToast } from '../../context/ToastContext';
+import { isBackendConnected } from '../../services/backend';
 
 export const AdminDashboardPage: React.FC = () => {
   const { language, t } = useLanguage();
   const [orders, setOrders] = useState(() => orderService.getOrders());
   const [products, setProducts] = useState(() => productService.getAllProductsAdmin());
   const [reviews, setReviews] = useState(() => reviewService.getAllReviewsAdmin());
+  const [serverStats, setServerStats] = useState<Record<string, unknown> | null>(null);
+  const [serverStatsError, setServerStatsError] = useState('');
+  const { showToast } = useToast();
 
-  // Listen for product and order updates
+  const refreshServerStats = async () => {
+    try {
+      const stats = await orderService.getDashboardStatsLive();
+      if (stats) {
+        setServerStats(stats);
+        setServerStatsError('');
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Dashboard data could not be loaded from the backend.';
+      setServerStatsError(message);
+      showToast(message, 'error');
+    }
+  };
+
   useEffect(() => {
     const handleUpdate = () => {
       setProducts(productService.getAllProductsAdmin());
       setOrders(orderService.getOrders());
       setReviews(reviewService.getAllReviewsAdmin());
+      void refreshServerStats();
     };
+    const handleBackendConnectionUpdate = () => {
+      if (isBackendConnected()) void refreshServerStats();
+    };
+    void refreshServerStats();
     window.addEventListener('quantum_products_updated', handleUpdate);
     window.addEventListener('quantum_orders_updated', handleUpdate);
+    window.addEventListener('quantum_reviews_updated', handleUpdate);
+    window.addEventListener('quantum_backend_connection_updated', handleBackendConnectionUpdate);
     return () => {
       window.removeEventListener('quantum_products_updated', handleUpdate);
       window.removeEventListener('quantum_orders_updated', handleUpdate);
+      window.removeEventListener('quantum_reviews_updated', handleUpdate);
+      window.removeEventListener('quantum_backend_connection_updated', handleBackendConnectionUpdate);
     };
   }, []);
 
@@ -38,10 +65,23 @@ export const AdminDashboardPage: React.FC = () => {
   const cancelledOrders = orders.filter(o => o.status === 'Cancelled');
   const pendingReviews = reviews.filter(r => r.status === 'Pending');
   const lowStockProducts = products.filter(p => p.stock <= 5);
+  const serverNumber = (key: string, fallback: number): number => {
+    const value = serverStats?.[key];
+    return typeof value === 'number' ? value : fallback;
+  };
+  const displayedProductCount = serverNumber('totalProducts', products.length);
+  const displayedCustomerCount = typeof serverStats?.totalCustomers === 'number'
+    ? serverStats.totalCustomers
+    : null;
+  const displayedOrderCount = serverNumber('totalOrders', orders.length);
+  const displayedPendingOrders = serverNumber('pendingOrders', pendingOrders.length);
+  const displayedDeliveredOrders = serverNumber('deliveredOrders', deliveredOrders.length);
+  const displayedLowStockProducts = serverNumber('lowStockProducts', lowStockProducts.length);
 
-  const totalRevenue = orders
+  const localRevenue = orders
     .filter(o => o.status !== 'Cancelled')
     .reduce((sum, o) => sum + o.total, 0);
+  const totalRevenue = serverNumber('totalRevenue', localRevenue);
 
   // Orders older than 24 hours (SRS FR-25)
   const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
@@ -61,6 +101,11 @@ export const AdminDashboardPage: React.FC = () => {
 
   return (
     <div className="flex flex-col gap-6 sm:gap-8">
+      {serverStatsError && (
+        <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          Dashboard metrics may be incomplete: {serverStatsError}
+        </div>
+      )}
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -119,7 +164,7 @@ export const AdminDashboardPage: React.FC = () => {
         </div>
       )}
 
-      {/* 8 Primary Operational KPI Cards */}
+      {/* 9 Primary Operational KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-5">
         {/* 1. Total Products */}
         <div className="p-4 sm:p-5 rounded-2xl bg-surface border border-border shadow-xs flex flex-col justify-between">
@@ -130,14 +175,37 @@ export const AdminDashboardPage: React.FC = () => {
             </div>
           </div>
           <div className="mt-3">
-            <span className="heading-4 sm:heading-3 font-bold text-ink block">{formatNumber(products.length, language)}</span>
+            <span className="heading-4 sm:heading-3 font-bold text-ink block">{formatNumber(displayedProductCount, language)}</span>
             <span className="caption-5 text-muted block mt-0.5">
               {formatNumber(activeProducts.length, language)} {t.admin.products.statusActive} • {formatNumber(products.length - activeProducts.length, language)} {t.admin.products.statusHidden}
             </span>
           </div>
         </div>
 
-        {/* 2. Total Orders */}
+        {/* 2. Registered Customers */}
+        <Link
+          to="/admin/customers"
+          className="p-4 sm:p-5 rounded-2xl bg-surface border border-border shadow-xs flex flex-col justify-between hover:border-quantum/50 transition-colors"
+        >
+          <div className="flex items-center justify-between">
+            <span className="caption-4 font-semibold uppercase text-muted tracking-wider">
+              {t.admin.nav.customers}
+            </span>
+            <div className="h-9 w-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+              <FontAwesomeIcon icon={Icons.user} className="h-4 w-4" />
+            </div>
+          </div>
+          <div className="mt-3">
+            <span className="heading-4 sm:heading-3 font-bold text-ink block">
+              {displayedCustomerCount === null ? '—' : formatNumber(displayedCustomerCount, language)}
+            </span>
+            <span className="caption-5 text-muted block mt-0.5">
+              {language === 'bn' ? 'নিবন্ধিত গ্রাহক অ্যাকাউন্ট' : 'Registered customer accounts'}
+            </span>
+          </div>
+        </Link>
+
+        {/* 3. Total Orders */}
         <div className="p-4 sm:p-5 rounded-2xl bg-surface border border-border shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <span className="caption-4 font-semibold uppercase text-muted tracking-wider">{t.admin.dashboard.totalOrders}</span>
@@ -146,14 +214,14 @@ export const AdminDashboardPage: React.FC = () => {
             </div>
           </div>
           <div className="mt-3">
-            <span className="heading-4 sm:heading-3 font-bold text-ink block">{formatNumber(orders.length, language)}</span>
+            <span className="heading-4 sm:heading-3 font-bold text-ink block">{formatNumber(displayedOrderCount, language)}</span>
             <span className="caption-5 text-muted block mt-0.5">
               {formatCurrency(totalRevenue, language)}
             </span>
           </div>
         </div>
 
-        {/* 3. Pending Orders */}
+        {/* 4. Pending Orders */}
         <div className="p-4 sm:p-5 rounded-2xl bg-surface border border-border shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <span className="caption-4 font-semibold uppercase text-muted tracking-wider">{t.admin.dashboard.pendingOrders}</span>
@@ -162,14 +230,14 @@ export const AdminDashboardPage: React.FC = () => {
             </div>
           </div>
           <div className="mt-3">
-            <span className="heading-4 sm:heading-3 font-bold text-amber-600 block">{formatNumber(pendingOrders.length, language)}</span>
+            <span className="heading-4 sm:heading-3 font-bold text-amber-600 block">{formatNumber(displayedPendingOrders, language)}</span>
             <span className="caption-5 text-muted block mt-0.5">
               {language === 'bn' ? 'কল করে কনফার্ম করা প্রয়োজন' : 'Awaiting customer phone call'}
             </span>
           </div>
         </div>
 
-        {/* 4. Delivered Orders */}
+        {/* 5. Delivered Orders */}
         <div className="p-4 sm:p-5 rounded-2xl bg-surface border border-border shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <span className="caption-4 font-semibold uppercase text-muted tracking-wider">{t.admin.dashboard.deliveredOrders}</span>
@@ -178,14 +246,14 @@ export const AdminDashboardPage: React.FC = () => {
             </div>
           </div>
           <div className="mt-3">
-            <span className="heading-4 sm:heading-3 font-bold text-emerald-600 block">{formatNumber(deliveredOrders.length, language)}</span>
+            <span className="heading-4 sm:heading-3 font-bold text-emerald-600 block">{formatNumber(displayedDeliveredOrders, language)}</span>
             <span className="caption-5 text-muted block mt-0.5">
               {language === 'bn' ? 'সফলভাবে ডেলিভারিকৃত পার্সেল' : 'Successfully fulfilled parcels'}
             </span>
           </div>
         </div>
 
-        {/* 5. Low-Stock Products (<= 5 units) */}
+        {/* 6. Low-Stock Products (<= 5 units) */}
         <div className="p-4 sm:p-5 rounded-2xl bg-surface border border-border shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <span className="caption-4 font-semibold uppercase text-muted tracking-wider">{t.admin.dashboard.lowStockItems}</span>
@@ -194,14 +262,14 @@ export const AdminDashboardPage: React.FC = () => {
             </div>
           </div>
           <div className="mt-3">
-            <span className="heading-4 sm:heading-3 font-bold text-rose-600 block">{formatNumber(lowStockProducts.length, language)}</span>
+            <span className="heading-4 sm:heading-3 font-bold text-rose-600 block">{formatNumber(displayedLowStockProducts, language)}</span>
             <span className="caption-5 text-muted block mt-0.5">
               {language === 'bn' ? '৫ টি বা তার কম অবশিষ্ট' : '5 units or fewer remaining'}
             </span>
           </div>
         </div>
 
-        {/* 6. Pending Reviews */}
+        {/* 7. Pending Reviews */}
         <div className="p-4 sm:p-5 rounded-2xl bg-surface border border-border shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <span className="caption-4 font-semibold uppercase text-muted tracking-wider">{t.admin.dashboard.pendingReviews}</span>
@@ -217,7 +285,7 @@ export const AdminDashboardPage: React.FC = () => {
           </div>
         </div>
 
-        {/* 7. Orders Over 24h Count */}
+        {/* 8. Orders Over 24h Count */}
         <div className="p-4 sm:p-5 rounded-2xl bg-surface border border-border shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <span className="caption-4 font-semibold uppercase text-muted tracking-wider">
@@ -237,7 +305,7 @@ export const AdminDashboardPage: React.FC = () => {
           </div>
         </div>
 
-        {/* 8. Total Revenue */}
+        {/* 9. Total Revenue */}
         <div className="p-4 sm:p-5 rounded-2xl bg-surface border border-border shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <span className="caption-4 font-semibold uppercase text-muted tracking-wider">{t.admin.dashboard.totalRevenue}</span>

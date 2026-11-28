@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { productService } from '../../services/productService';
 import { categoryService } from '../../services/categoryService';
 import { useToast } from '../../context/ToastContext';
 import { Category } from '../../types';
@@ -8,7 +7,7 @@ import { Icons } from '../../utilities/icons';
 import { Modal } from '../../components/Modal';
 
 export const AdminCategoriesPage: React.FC = () => {
-  const [categories, setCategories] = useState<Category[]>(() => categoryService.getCategories());
+  const [categories, setCategories] = useState<Category[]>(() => categoryService.getAdminCategories());
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCat, setEditingCat] = useState<Category | null>(null);
   const [nameEn, setNameEn] = useState('');
@@ -19,7 +18,7 @@ export const AdminCategoriesPage: React.FC = () => {
 
   useEffect(() => {
     const handleSync = () => {
-      setCategories(categoryService.getCategories());
+      setCategories(categoryService.getAdminCategories());
     };
     window.addEventListener('quantum_categories_updated', handleSync);
     return () => window.removeEventListener('quantum_categories_updated', handleSync);
@@ -41,72 +40,90 @@ export const AdminCategoriesPage: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  const handleToggleVisibility = (cat: Category) => {
+  const handleToggleVisibility = async (cat: Category) => {
     const updatedStatus = cat.status === 'Visible' ? 'Hidden' : 'Visible';
-    categoryService.updateCategory(cat.id, { status: updatedStatus });
-    showToast(`Category "${cat.nameEn}" is now ${updatedStatus}.`, 'info');
+    try {
+      await categoryService.updateCategory(cat.id, { status: updatedStatus });
+      showToast(`Category "${cat.nameEn}" is now ${updatedStatus}.`, 'info');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Failed to update category.', 'error');
+    }
   };
 
   // Move Category Up
-  const handleMoveUp = (index: number) => {
+  const handleMoveUp = async (index: number) => {
     if (index === 0) return;
     const updated = [...categories];
     const temp = updated[index - 1];
     updated[index - 1] = updated[index];
     updated[index] = temp;
-    categoryService.reorderCategories(updated);
-    showToast(`Moved "${categories[index].nameEn}" up.`, 'success');
+    try {
+      await categoryService.reorderCategories(updated);
+      showToast(`Moved "${categories[index].nameEn}" up.`, 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Failed to reorder categories.', 'error');
+    }
   };
 
   // Move Category Down
-  const handleMoveDown = (index: number) => {
+  const handleMoveDown = async (index: number) => {
     if (index === categories.length - 1) return;
     const updated = [...categories];
     const temp = updated[index + 1];
     updated[index + 1] = updated[index];
     updated[index] = temp;
-    categoryService.reorderCategories(updated);
-    showToast(`Moved "${categories[index].nameEn}" down.`, 'success');
-  };
-
-  const handleDelete = (cat: Category) => {
-    const res = categoryService.deleteCategory(cat.id);
-    if (!res.success) {
-      showToast(res.error || 'Cannot delete category.', 'error');
-      return;
+    try {
+      await categoryService.reorderCategories(updated);
+      showToast(`Moved "${categories[index].nameEn}" down.`, 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Failed to reorder categories.', 'error');
     }
-
-    showToast(`Category "${cat.nameEn}" deleted successfully.`, 'success');
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleDelete = async (cat: Category) => {
+    try {
+      const res = await categoryService.deleteCategory(cat.id);
+      if (!res.success) {
+        showToast(res.error || 'Cannot delete category.', 'error');
+        return;
+      }
+      showToast(`Category "${cat.nameEn}" deleted successfully.`, 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Failed to delete category.', 'error');
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!nameEn.trim() || !nameBn.trim()) {
       showToast('Please provide both English and Bangla category names.', 'error');
       return;
     }
 
-    if (editingCat) {
-      categoryService.updateCategory(editingCat.id, {
-        nameEn: nameEn.trim(),
-        nameBn: nameBn.trim(),
-        iconName,
-      });
-      showToast(`Category "${nameEn}" updated successfully.`, 'success');
-    } else {
-      categoryService.createCategory({
-        nameEn: nameEn.trim(),
-        nameBn: nameBn.trim(),
-        slug: nameEn.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, ''),
-        sortOrder: categories.length + 1,
-        status: 'Visible',
-        iconName,
-      });
-      setCategories(categoryService.getCategories());
-      showToast(`Category "${nameEn}" created successfully.`, 'success');
+    try {
+      if (editingCat) {
+        await categoryService.updateCategory(editingCat.id, {
+          nameEn: nameEn.trim(),
+          nameBn: nameBn.trim(),
+          iconName,
+        });
+        showToast(`Category "${nameEn}" updated successfully.`, 'success');
+      } else {
+        await categoryService.createCategory({
+          nameEn: nameEn.trim(),
+          nameBn: nameBn.trim(),
+          slug: nameEn.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, ''),
+          sortOrder: categories.length + 1,
+          status: 'Visible',
+          iconName,
+        });
+        setCategories(categoryService.getAdminCategories());
+        showToast(`Category "${nameEn}" created successfully.`, 'success');
+      }
+      setIsModalOpen(false);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Failed to save category.', 'error');
     }
-
-    setIsModalOpen(false);
   };
 
   return (

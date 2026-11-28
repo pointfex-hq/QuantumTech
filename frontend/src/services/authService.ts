@@ -1,6 +1,6 @@
 import { AdminSession } from '../types';
 import { getItem, setItem, removeItem, STORAGE_KEYS } from '../utilities/storage';
-import { api, ApiError, isBackendConnected, refreshAdminCatalog, setAdminToken } from './backend';
+import { api, ApiError, isBackendConnected, refreshAdminCatalog, refreshAdminPromotions, setAdminToken } from './backend';
 
 const FAILED_ATTEMPTS_KEY = 'qt_admin_failed_attempts';
 const LOCKED_UNTIL_KEY = 'qt_admin_locked_until';
@@ -93,7 +93,7 @@ export const authService = {
       removeItem(LOCKED_UNTIL_KEY);
       if (rememberMe) this.setRememberedEmail(email);
       window.dispatchEvent(new Event('quantum_auth_updated'));
-      await refreshAdminCatalog().catch(() => undefined);
+      await Promise.all([refreshAdminCatalog(), refreshAdminPromotions()]).catch(() => undefined);
       return { success: true, session };
     } catch (error) {
       if (error instanceof ApiError) {

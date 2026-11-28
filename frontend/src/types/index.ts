@@ -25,6 +25,7 @@ export interface ProductVariant {
 
 export interface Product {
   id: string;
+  isSeedData?: boolean;
   name: string;
   nameBn: string;
   slug: string;

@@ -3,7 +3,26 @@
  */
 export function isValidBangladeshPhone(phone: string): boolean {
   const cleaned = phone.replace(/[\s-]/g, '');
-  return /^01[3-9]\d{8}$/.test(cleaned);
+  return /^(\+?88)?01[3-9]\d{8}$/.test(cleaned);
+}
+
+/**
+ * Validate a standard email address with a dotted domain.
+ */
+export function isValidEmail(email: string): boolean {
+  const cleaned = email.trim();
+  if (cleaned.length > 254) return false;
+
+  const [localPart, ...domainParts] = cleaned.split('@');
+  if (!localPart || domainParts.length !== 1 || localPart.length > 64) return false;
+
+  const [domain] = domainParts;
+  if (!domain || localPart.startsWith('.') || localPart.endsWith('.') || localPart.includes('..')) {
+    return false;
+  }
+
+  return /^[A-Za-z0-9.!$%&'*+\/=?^_`{|}~-]+$/.test(localPart)
+    && /^(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$/.test(domain);
 }
 
 /**

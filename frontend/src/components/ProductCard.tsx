@@ -22,6 +22,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, className = '
   const { addToCart } = useCart();
   const navigate = useNavigate();
 
+  const isSeedProduct = product.isSeedData === true;
   const isOutOfStock = product.stock <= 0;
   const isLowStock = product.stock > 0 && product.stock <= 5;
   const title = language === 'bn' ? product.nameBn : product.name;
@@ -76,6 +77,11 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, className = '
 
           {/* Badges Overlay */}
           <div className="absolute top-2 left-2 flex flex-col gap-1 z-10">
+            {isSeedProduct && (
+              <span className="caption-3 px-2 py-0.5 rounded bg-warning text-ink shadow-sm font-semibold">
+                {language === 'bn' ? 'নমুনা' : 'SAMPLE'}
+              </span>
+            )}
             {product.isNew && (
               <span className="caption-3 px-2 py-0.5 rounded bg-ink text-white shadow-sm font-semibold">
                 {language === 'bn' ? 'নতুন' : 'NEW'}
@@ -156,17 +162,23 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, className = '
           <button
             type="button"
             onClick={handleQuickAdd}
-            disabled={isOutOfStock}
+            disabled={isOutOfStock || isSeedProduct}
             className={`btn-base button-xsm flex-1 px-2 py-1.5 rounded-lg min-h-[36px] overflow-hidden ${
-              isOutOfStock
+              isOutOfStock || isSeedProduct
                 ? 'bg-surface-muted text-muted cursor-not-allowed border border-border'
                 : 'bg-quantum text-white hover:bg-quantum-hover active:scale-95 shadow-sm'
             }`}
-            aria-label={isOutOfStock ? t.product.outOfStock : t.product.addToCart}
+            aria-label={
+              isSeedProduct
+                ? (language === 'bn' ? 'শুধু নমুনা, অর্ডার করা যাবে না' : 'Preview only, ordering unavailable')
+                : isOutOfStock ? t.product.outOfStock : t.product.addToCart
+            }
           >
             <FontAwesomeIcon icon={Icons.cart} className="h-3 w-3 flex-shrink-0" />
             <span className="text-xs truncate">
-              {isOutOfStock ? t.product.outOfStock : t.product.addToCart}
+              {isSeedProduct
+                ? (language === 'bn' ? 'শুধু নমুনা' : 'Preview only')
+                : isOutOfStock ? t.product.outOfStock : t.product.addToCart}
             </span>
           </button>
         </div>

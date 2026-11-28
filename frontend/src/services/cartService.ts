@@ -1,7 +1,8 @@
 import { CartItem, Product, ProductVariant, DeliveryArea } from '../types';
 import { getItem, setItem, STORAGE_KEYS } from '../utilities/storage';
 import { promotionService } from './promotionService';
-import { api, isBackendConnected } from './backend';
+import { api, isBackendConnected, reportBackendError } from './backend';
+import { isSeedCatalogProduct } from './productService';
 
 export interface ServerCartQuote {
   valid: boolean;
@@ -27,7 +28,9 @@ export interface ServerCartQuote {
 
 export const cartService = {
   getCart(): CartItem[] {
-    const rawItems = getItem<CartItem[]>(STORAGE_KEYS.CART, []);
+    const storedItems = getItem<CartItem[]>(STORAGE_KEYS.CART, []);
+    const rawItems = storedItems.filter((item) => item?.product && !isSeedCatalogProduct(item.product));
+    if (rawItems.length !== storedItems.length) setItem(STORAGE_KEYS.CART, rawItems);
     return this.revalidateCartPrices(rawItems);
   },
 
@@ -72,6 +75,13 @@ export const cartService = {
     quantity: number = 1
   ): { success: boolean; items: CartItem[]; error?: string; updatedItem?: CartItem } {
     const items = getItem<CartItem[]>(STORAGE_KEYS.CART, []);
+    if (isSeedCatalogProduct(product)) {
+      return {
+        success: false,
+        items,
+        error: 'Sample products are for preview only and cannot be ordered.',
+      };
+    }
     const availableStock = variant ? variant.stock : product.stock;
 
     if (availableStock <= 0) {
@@ -194,7 +204,10 @@ export const cartService = {
   },
 
   async validateCartLive(items: CartItem[], area?: DeliveryArea): Promise<ServerCartQuote | null> {
-    if (!items.length || !isBackendConnected()) return null;
+    if (!items.length) return null;
+    if (!isBackendConnected()) {
+      throw new Error('Checkout is unavailable because the backend is not connected.');
+    }
     try {
       return await api<ServerCartQuote>('/api/cart/validate', {
         method: 'POST',
@@ -207,8 +220,9 @@ export const cartService = {
           })),
         }),
       });
-    } catch {
-      return null;
+    } catch (error) {
+      reportBackendError(error);
+      throw error;
     }
   },
 };

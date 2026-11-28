@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { ToastMessage } from '../types';
 
 interface ToastContextType {
@@ -33,6 +33,16 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }, duration);
     }
   }, [removeToast]);
+
+  useEffect(() => {
+    const handleSyncError = (event: Event) => {
+      const detail = (event as CustomEvent<{ message?: string }>).detail;
+      const message = detail?.message || 'The server could not save this change. Please retry.';
+      showToast(`Server sync failed: ${message}`, 'error');
+    };
+    window.addEventListener('quantum_backend_sync_error', handleSyncError);
+    return () => window.removeEventListener('quantum_backend_sync_error', handleSyncError);
+  }, [showToast]);
 
   return (
     <ToastContext.Provider value={{ toasts, showToast, removeToast }}>

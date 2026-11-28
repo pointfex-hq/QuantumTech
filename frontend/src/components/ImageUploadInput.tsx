@@ -3,6 +3,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Icons } from '../utilities/icons';
 import { compressImageFile, isValidImageFile } from '../utilities/imageUtils';
 import { useToast } from '../context/ToastContext';
+import { isBackendConnected, uploadImage } from '../services/backend';
 
 interface ImageUploadInputProps {
   value: string;
@@ -42,11 +43,20 @@ export const ImageUploadInput: React.FC<ImageUploadInputProps> = ({
 
     setIsUploading(true);
     try {
+      if (!isBackendConnected()) {
+        throw new Error('Backend is not connected. Please retry image upload when it is available.');
+      }
       const compressedDataUrl = await compressImageFile(file, maxWidth, maxHeight, 0.85);
-      onChange(compressedDataUrl);
-      showToast('Image uploaded and optimized successfully!', 'success');
-    } catch (err: any) {
-      showToast(err.message || 'Failed to process image file.', 'error');
+      const blob = await (await fetch(compressedDataUrl)).blob();
+      const compressedFile = new File([blob], file.name, { type: blob.type });
+      const uploadedUrl = await uploadImage(compressedFile);
+      if (!uploadedUrl) {
+        throw new Error('Sign in as an administrator before uploading images.');
+      }
+      onChange(uploadedUrl);
+      showToast('Image uploaded to the store successfully!', 'success');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to process image file.', 'error');
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) {

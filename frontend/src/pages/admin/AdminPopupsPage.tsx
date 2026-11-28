@@ -109,7 +109,7 @@ export const AdminPopupsPage: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!heading.trim()) {
       showToast('Heading title is required.', 'error');
@@ -150,30 +150,41 @@ export const AdminPopupsPage: React.FC = () => {
       isEnabled: true,
     };
 
-    if (editingPopup) {
-      promotionService.updatePopup(editingPopup.id, popupData);
-      showToast('Popup updated successfully!', 'success');
-    } else {
-      promotionService.createPopup(popupData);
-      showToast('Popup created successfully!', 'success');
-    }
-
-    setIsModalOpen(false);
-    loadData();
-  };
-
-  const handleDelete = (id: string, name: string) => {
-    if (window.confirm(`Delete popup "${name}"?`)) {
-      promotionService.deletePopup(id);
-      showToast('Popup deleted.', 'info');
+    try {
+      if (editingPopup) {
+        await promotionService.updatePopup(editingPopup.id, popupData);
+        showToast('Popup updated successfully!', 'success');
+      } else {
+        await promotionService.createPopup(popupData);
+        showToast('Popup created successfully!', 'success');
+      }
+      setIsModalOpen(false);
       loadData();
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Failed to save popup.', 'error');
     }
   };
 
-  const handleToggle = (p: PromotionalPopup) => {
-    promotionService.updatePopup(p.id, { isEnabled: !p.isEnabled });
-    showToast(`Popup ${!p.isEnabled ? 'activated' : 'deactivated'}.`, 'success');
-    loadData();
+  const handleDelete = async (id: string, name: string) => {
+    if (window.confirm(`Delete popup "${name}"?`)) {
+      try {
+        await promotionService.deletePopup(id);
+        showToast('Popup deleted.', 'info');
+        loadData();
+      } catch (error) {
+        showToast(error instanceof Error ? error.message : 'Failed to delete popup.', 'error');
+      }
+    }
+  };
+
+  const handleToggle = async (p: PromotionalPopup) => {
+    try {
+      await promotionService.updatePopup(p.id, { isEnabled: !p.isEnabled });
+      showToast(`Popup ${!p.isEnabled ? 'activated' : 'deactivated'}.`, 'success');
+      loadData();
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Failed to update popup.', 'error');
+    }
   };
 
   return (

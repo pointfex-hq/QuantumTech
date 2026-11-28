@@ -6,12 +6,14 @@ import { Icons } from '../utilities/icons';
 
 interface ThemeToggleProps {
   variant?: 'icon' | 'pill' | 'row';
+  tone?: 'default' | 'inverse';
   className?: string;
   id?: string;
 }
 
 export const ThemeToggle: React.FC<ThemeToggleProps> = ({
   variant = 'icon',
+  tone = 'default',
   className = '',
   id,
 }) => {
@@ -33,7 +35,11 @@ export const ThemeToggle: React.FC<ThemeToggleProps> = ({
         type="button"
         onClick={toggleTheme}
         data-testid="theme-toggle-pill"
-        className={`btn-base border border-border bg-surface hover:bg-surface-muted text-ink button-sm shadow-2xs transition-all duration-300 ease-brand ${className}`}
+        className={`btn-base border ${
+          tone === 'inverse'
+            ? 'border-slate-800 bg-slate-900 text-slate-200 hover:bg-slate-800 hover:text-white'
+            : 'border-border bg-surface text-ink hover:bg-surface-muted'
+        } button-sm shadow-2xs transition-all duration-300 ease-brand ${className}`}
         aria-label={ariaLabel}
         title={ariaLabel}
       >
@@ -103,14 +109,20 @@ export const ThemeToggle: React.FC<ThemeToggleProps> = ({
       data-testid="theme-toggle-btn"
       aria-label={ariaLabel}
       title={ariaLabel}
-      className={`h-10 w-10 min-h-[40px] min-w-[40px] rounded-xl border border-border bg-surface hover:bg-surface-muted text-ink flex items-center justify-center transition-all duration-300 ease-brand shadow-2xs group focus:outline-none focus:border-quantum ${className}`}
+      className={`h-10 w-10 min-h-[40px] min-w-[40px] rounded-xl border flex items-center justify-center transition-all duration-300 ease-brand shadow-2xs group focus:outline-none focus:border-quantum ${
+        tone === 'inverse'
+          ? 'border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700'
+          : 'border-border bg-surface text-ink hover:bg-surface-muted'
+      } ${className}`}
     >
       <FontAwesomeIcon
         icon={isDark ? Icons.sun : Icons.moon}
         className={`h-4 w-4 transition-transform duration-300 ${
           isDark
             ? 'text-amber-400 group-hover:rotate-45'
-            : 'text-muted group-hover:text-quantum'
+            : tone === 'inverse'
+              ? 'text-quantum'
+              : 'text-muted group-hover:text-quantum'
         }`}
       />
     </button>

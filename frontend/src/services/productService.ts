@@ -1,8 +1,34 @@
 import { Product, ProductVariant, Category } from '../types';
-import { initialProducts } from '../data/mockData';
+import { seedProducts } from '../data/seedData';
 import { getItem, setItem, STORAGE_KEYS } from '../utilities/storage';
 import { categoryService } from './categoryService';
 import { syncProduct } from './backend';
+
+const seedProductSlugs = new Map(seedProducts.map((product) => [product.id, product.slug]));
+
+export function isSeedCatalogProduct(product: Pick<Product, 'id' | 'slug' | 'isSeedData'>): boolean {
+  return product.isSeedData === true || seedProductSlugs.get(product.id) === product.slug;
+}
+
+export function isSeedCatalogProductId(productId: string): boolean {
+  return seedProductSlugs.has(productId);
+}
+
+export function isSeedCatalogActive(): boolean {
+  return getItem<boolean>(STORAGE_KEYS.SEED_CATALOG_ACTIVE, false);
+}
+
+function getStoredProducts(): Product[] {
+  return getItem<Product[]>(STORAGE_KEYS.PRODUCTS, []).filter((product) => !isSeedCatalogProduct(product));
+}
+
+function seedProductPreview(product: Product): Product {
+  return {
+    ...product,
+    isSeedData: true,
+    variants: product.variants?.map((variant) => ({ ...variant })),
+  };
+}
 
 export const productService = {
   // Calculate total stock by summing all variant stocks
@@ -26,15 +52,19 @@ export const productService = {
 
   // Storefront catalog: only returns Active products that are not Deleted or Hidden
   getProducts(): Product[] {
-    const stored = getItem<Product[]>(STORAGE_KEYS.PRODUCTS, initialProducts);
-    return stored
+    const stored = getStoredProducts();
+    const visibleProducts = stored
       .map(p => this.syncProductStock(p))
       .filter(p => p.status === 'Active' || !p.status);
+    if (stored.some((product) => product.status !== 'Deleted') || !isSeedCatalogActive()) {
+      return visibleProducts;
+    }
+    return seedProducts.map(seedProductPreview).map((product) => this.syncProductStock(product));
   },
 
   // Admin catalog: returns all products (Active, Hidden)
   getAllProductsAdmin(): Product[] {
-    const stored = getItem<Product[]>(STORAGE_KEYS.PRODUCTS, initialProducts);
+    const stored = getStoredProducts();
     return stored
       .map(p => this.syncProductStock(p))
       .filter(p => p.status !== 'Deleted');
@@ -42,16 +72,19 @@ export const productService = {
 
   // Lookup product by ID (including hidden products for admin editing)
   getProductById(id: string): Product | undefined {
-    const stored = getItem<Product[]>(STORAGE_KEYS.PRODUCTS, initialProducts);
+    const stored = getStoredProducts();
     const prod = stored.find(p => p.id === id);
     return prod ? this.syncProductStock(prod) : undefined;
   },
 
   // Lookup product by slug
   getProductBySlug(slug: string): Product | undefined {
-    const stored = getItem<Product[]>(STORAGE_KEYS.PRODUCTS, initialProducts);
-    const prod = stored.find(p => p.slug === slug);
-    return prod ? this.syncProductStock(prod) : undefined;
+    const stored = getStoredProducts();
+    const prod = stored.find(p => p.slug === slug && (p.status === 'Active' || !p.status));
+    if (prod) return this.syncProductStock(prod);
+    if (stored.some((product) => product.status !== 'Deleted') || !isSeedCatalogActive()) return undefined;
+    const seed = seedProducts.find((product) => product.slug === slug);
+    return seed ? this.syncProductStock(seedProductPreview(seed)) : undefined;
   },
 
   getCategories(): Category[] {
@@ -69,7 +102,7 @@ export const productService = {
   },
 
   getRelatedProducts(productId: string, limit: number = 4): Product[] {
-    const current = this.getProductById(productId);
+    const current = this.getProductById(productId) || this.getProducts().find(p => p.id === productId);
     const all = this.getProducts().filter(p => p.id !== productId);
     if (!current) return all.slice(0, limit);
 
@@ -79,10 +112,14 @@ export const productService = {
     return [...sameCat, ...otherCat].slice(0, limit);
   },
 
-  saveProduct(productData: Partial<Product> & { name: string; price: number; stock: number; categoryId: string }): Product {
-    const all = getItem<Product[]>(STORAGE_KEYS.PRODUCTS, initialProducts);
-    const categories = this.getCategories();
+  async saveProduct(productData: Partial<Product> & { name: string; price: number; stock: number; categoryId: string }): Promise<Product> {
+    const all = getStoredProducts();
+    const categories = categoryService.getAdminCategories();
     const cat = categories.find(c => c.id === productData.categoryId);
+    const storedCategories = getItem<Category[]>(STORAGE_KEYS.CATEGORIES, []);
+    if (cat && !storedCategories.some((category) => category.id === cat.id)) {
+      await categoryService.saveCategory(cat);
+    }
 
     const id = productData.id || `prod-${Date.now()}`;
     const slug = productData.slug || productData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
@@ -129,28 +166,25 @@ export const productService = {
     };
 
     const index = all.findIndex(p => p.id === id);
-    if (index >= 0) {
-      all[index] = completeProduct;
-    } else {
-      all.unshift(completeProduct);
-    }
-
+    const savedProduct = await syncProduct(completeProduct, false, index < 0);
+    const persistedProduct = savedProduct || completeProduct;
+    if (index >= 0) all[index] = persistedProduct;
+    else all.unshift(persistedProduct);
     setItem(STORAGE_KEYS.PRODUCTS, all);
-    // Dispatch custom event to notify all components in this browser window
+    setItem(STORAGE_KEYS.SEED_CATALOG_ACTIVE, false);
     window.dispatchEvent(new Event('quantum_products_updated'));
-    syncProduct(completeProduct);
-    return completeProduct;
+    return persistedProduct;
   },
 
-  createProduct(productData: Partial<Product> & { name: string; price: number; stock?: number; categoryId: string }): Product {
+  createProduct(productData: Partial<Product> & { name: string; price: number; stock?: number; categoryId: string }): Promise<Product> {
     return this.saveProduct({
       ...productData,
       stock: productData.stock ?? 0,
     });
   },
 
-  updateProduct(id: string, updates: Partial<Product>): Product | undefined {
-    const all = getItem<Product[]>(STORAGE_KEYS.PRODUCTS, initialProducts);
+  async updateProduct(id: string, updates: Partial<Product>): Promise<Product | undefined> {
+    const all = getStoredProducts();
     const index = all.findIndex(p => p.id === id);
     if (index === -1) return undefined;
 
@@ -174,16 +208,18 @@ export const productService = {
       stock: finalStock,
     };
 
-    all[index] = updatedProduct;
+    const savedProduct = await syncProduct(updatedProduct);
+    const persistedProduct = savedProduct || updatedProduct;
+    all[index] = persistedProduct;
     setItem(STORAGE_KEYS.PRODUCTS, all);
+    setItem(STORAGE_KEYS.SEED_CATALOG_ACTIVE, false);
     window.dispatchEvent(new Event('quantum_products_updated'));
-    syncProduct(updatedProduct);
-    return updatedProduct;
+    return persistedProduct;
   },
 
   deductStock(productId: string, quantity: number, variantId?: string): { success: boolean; remainingStock: number; error?: string } {
     if (quantity <= 0) return { success: false, remainingStock: 0, error: 'Quantity must be greater than zero.' };
-    const all = getItem<Product[]>(STORAGE_KEYS.PRODUCTS, initialProducts);
+    const all = getStoredProducts();
     const prod = all.find(p => p.id === productId);
     if (!prod) return { success: false, remainingStock: 0, error: 'Product not found.' };
 
@@ -207,24 +243,30 @@ export const productService = {
     return { success: true, remainingStock: prod.stock };
   },
 
-  updateProductRating(productId: string, rating: number, reviewsCount: number): void {
-    const all = getItem<Product[]>(STORAGE_KEYS.PRODUCTS, initialProducts);
+  async updateProductRating(productId: string, rating: number, reviewsCount: number): Promise<void> {
+    const all = getStoredProducts();
     const prod = all.find(p => p.id === productId);
     if (prod) {
       prod.rating = rating;
       prod.reviewsCount = reviewsCount;
+      await syncProduct(prod);
       setItem(STORAGE_KEYS.PRODUCTS, all);
       window.dispatchEvent(new Event('quantum_products_updated'));
     }
   },
 
-  softDeleteProduct(id: string): void {
-    const all = getItem<Product[]>(STORAGE_KEYS.PRODUCTS, initialProducts);
+  async softDeleteProduct(id: string): Promise<void> {
+    const all = getStoredProducts();
     const updated = all.map(p => (p.id === id ? { ...p, status: 'Deleted' as const } : p));
-    setItem(STORAGE_KEYS.PRODUCTS, updated);
-    window.dispatchEvent(new Event('quantum_products_updated'));
     const removed = updated.find((p) => p.id === id);
-    if (removed) syncProduct(removed, true);
+    if (!removed) return;
+    await syncProduct(removed, true);
+    setItem(STORAGE_KEYS.PRODUCTS, updated);
+    setItem(
+      STORAGE_KEYS.SEED_CATALOG_ACTIVE,
+      updated.every((product) => product.status === 'Deleted')
+    );
+    window.dispatchEvent(new Event('quantum_products_updated'));
   },
 
   searchProducts(query: string, _lang?: string): Product[] {

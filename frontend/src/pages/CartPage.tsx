@@ -9,7 +9,7 @@ import { EmptyState } from '../components/EmptyState';
 import { PriceDisplay } from '../components/PriceDisplay';
 import { Icons } from '../utilities/icons';
 import { formatCurrency } from '../utilities/currency';
-import { initialCategories } from '../data/mockData';
+import { productService } from '../services/productService';
 
 export const CartPage: React.FC = () => {
   const {
@@ -78,7 +78,7 @@ export const CartPage: React.FC = () => {
               {language === 'bn' ? 'প্রয়োজনীয় ক্যাটাগরি ঘুরে দেখুন' : 'Explore Popular Categories'}
             </h3>
             <div className="flex flex-wrap justify-center gap-2.5">
-              {initialCategories.map((cat) => (
+              {productService.getCategories().map((cat) => (
                 <Link
                   key={cat.id}
                   to={`/category/${cat.slug}`}

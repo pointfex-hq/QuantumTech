@@ -74,23 +74,31 @@ export const AdminProductsPage: React.FC = () => {
   }, [products, categoryFilter, stockFilter, statusFilter, search]);
 
   // Actions
-  const handleToggleHide = (product: Product) => {
+  const handleToggleHide = async (product: Product) => {
     const updatedStatus = product.status === 'Hidden' ? 'Active' : 'Hidden';
-    productService.saveProduct({ ...product, status: updatedStatus });
-    refreshProducts();
-    showToast(
-      updatedStatus === 'Active'
-        ? `"${product.name}" published to customer catalog.`
-        : `"${product.name}" is now hidden from storefront.`,
-      'info'
-    );
+    try {
+      await productService.saveProduct({ ...product, status: updatedStatus });
+      refreshProducts();
+      showToast(
+        updatedStatus === 'Active'
+          ? `"${product.name}" published to customer catalog.`
+          : `"${product.name}" is now hidden from storefront.`,
+        'info'
+      );
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Failed to update product.', 'error');
+    }
   };
 
-  const handleDelete = (product: Product) => {
+  const handleDelete = async (product: Product) => {
     if (window.confirm(`Are you sure you want to delete "${product.name}"? It will be soft-deleted to preserve order history.`)) {
-      productService.softDeleteProduct(product.id);
-      refreshProducts();
-      showToast(`Product "${product.name}" soft-deleted.`, 'success');
+      try {
+        await productService.softDeleteProduct(product.id);
+        refreshProducts();
+        showToast(`Product "${product.name}" soft-deleted.`, 'success');
+      } catch (error) {
+        showToast(error instanceof Error ? error.message : 'Failed to delete product.', 'error');
+      }
     }
   };
 

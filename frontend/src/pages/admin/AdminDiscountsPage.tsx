@@ -16,7 +16,7 @@ export const AdminDiscountsPage: React.FC = () => {
 
   // Products and Categories
   const products = productService.getAllProductsAdmin();
-  const categories = categoryService.getCategories();
+  const categories = categoryService.getAdminCategories();
 
   // Form states
   const [name, setName] = useState('');
@@ -85,7 +85,7 @@ export const AdminDiscountsPage: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
       showToast('Discount rule name is required.', 'error');
@@ -122,30 +122,41 @@ export const AdminDiscountsPage: React.FC = () => {
       isActive: true,
     };
 
-    if (editingDiscount) {
-      promotionService.updateDiscount(editingDiscount.id, discountData);
-      showToast('Discount updated successfully!', 'success');
-    } else {
-      promotionService.createDiscount(discountData);
-      showToast('Discount created successfully!', 'success');
-    }
-
-    setIsModalOpen(false);
-    loadData();
-  };
-
-  const handleDelete = (id: string, name: string) => {
-    if (window.confirm(`Delete discount rule "${name}"?`)) {
-      promotionService.deleteDiscount(id);
-      showToast('Discount deleted.', 'info');
+    try {
+      if (editingDiscount) {
+        await promotionService.updateDiscount(editingDiscount.id, discountData);
+        showToast('Discount updated successfully!', 'success');
+      } else {
+        await promotionService.createDiscount(discountData);
+        showToast('Discount created successfully!', 'success');
+      }
+      setIsModalOpen(false);
       loadData();
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Failed to save discount.', 'error');
     }
   };
 
-  const handleToggle = (d: ProductDiscount) => {
-    promotionService.updateDiscount(d.id, { isActive: !d.isActive });
-    showToast(`Discount ${!d.isActive ? 'activated' : 'paused'}.`, 'success');
-    loadData();
+  const handleDelete = async (id: string, name: string) => {
+    if (window.confirm(`Delete discount rule "${name}"?`)) {
+      try {
+        await promotionService.deleteDiscount(id);
+        showToast('Discount deleted.', 'info');
+        loadData();
+      } catch (error) {
+        showToast(error instanceof Error ? error.message : 'Failed to delete discount.', 'error');
+      }
+    }
+  };
+
+  const handleToggle = async (d: ProductDiscount) => {
+    try {
+      await promotionService.updateDiscount(d.id, { isActive: !d.isActive });
+      showToast(`Discount ${!d.isActive ? 'activated' : 'paused'}.`, 'success');
+      loadData();
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Failed to update discount.', 'error');
+    }
   };
 
   // Preview Calculations

@@ -3,6 +3,8 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { productService } from '../services/productService';
 import { reviewService } from '../services/reviewService';
+import { isBackendConnected, uploadReviewImage } from '../services/backend';
+import { compressImageFile } from '../utilities/imageUtils';
 import { promotionService } from '../services/promotionService';
 import { CampaignCountdownTimer } from '../components/CampaignCountdownTimer';
 import { useCart } from '../context/CartContext';
@@ -43,6 +45,7 @@ export const ProductDetailPage: React.FC = () => {
   const [reviewImages, setReviewImages] = useState<string[]>([]);
   const [reviewErrors, setReviewErrors] = useState<Record<string, string>>({});
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+  const [isUploadingReviewImages, setIsUploadingReviewImages] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -127,6 +130,7 @@ export const ProductDetailPage: React.FC = () => {
   const countdownEnd = promoPriceResult.countdownEnd;
 
   const activeStock = selectedVariant ? selectedVariant.stock : product.stock;
+  const isSeedProduct = product.isSeedData === true;
   const isOutOfStock = activeStock <= 0;
   const isLowStock = activeStock > 0 && activeStock <= 5;
   const productName = language === 'bn' ? product.nameBn : product.name;
@@ -173,7 +177,7 @@ export const ProductDetailPage: React.FC = () => {
 
   // Add to Cart
   const handleAddToCart = () => {
-    if (!isOutOfStock) {
+    if (!isOutOfStock && !isSeedProduct) {
       addToCart(product, selectedVariant, quantity);
     }
   };
@@ -218,7 +222,7 @@ export const ProductDetailPage: React.FC = () => {
   };
 
   // Image upload handling for customer review
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
@@ -231,6 +235,7 @@ export const ProductDetailPage: React.FC = () => {
     const filesToProcess = Array.from(files).slice(0, remainingSlots);
     const validFormats = ['image/jpeg', 'image/png', 'image/webp'];
 
+    setIsUploadingReviewImages(true);
     for (const file of filesToProcess) {
       if (!validFormats.includes(file.type)) {
         showToast(
@@ -246,14 +251,22 @@ export const ProductDetailPage: React.FC = () => {
         continue;
       }
 
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        if (event.target?.result) {
-          setReviewImages((prev) => [...prev, event.target!.result as string]);
+      try {
+        if (isBackendConnected()) {
+          const url = await uploadReviewImage(file);
+          setReviewImages((prev) => [...prev, url]);
+        } else {
+          const dataUrl = await compressImageFile(file, 1200, 1200, 0.82);
+          setReviewImages((prev) => [...prev, dataUrl]);
         }
-      };
-      reader.readAsDataURL(file);
+      } catch (error) {
+        showToast(
+          error instanceof Error ? error.message : 'Image upload failed.',
+          'error'
+        );
+      }
     }
+    setIsUploadingReviewImages(false);
 
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
@@ -281,7 +294,7 @@ export const ProductDetailPage: React.FC = () => {
     }
   };
 
-  const handleReviewSubmit = (e: React.FormEvent) => {
+  const handleReviewSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!product) return;
 
@@ -312,7 +325,7 @@ export const ProductDetailPage: React.FC = () => {
     }
 
     setIsSubmittingReview(true);
-    const result = reviewService.addReview({
+    const result = await reviewService.addReview({
       productId: product.id,
       productName: product.name,
       reviewerName: reviewName.trim(),
@@ -672,6 +685,13 @@ export const ProductDetailPage: React.FC = () => {
           ) : null}
 
           {/* Quantity Selector & Add to Cart (Desktop) */}
+          {isSeedProduct && (
+            <p className="rounded-lg border border-warning bg-warning-soft px-3 py-2 text-sm text-warning-dark">
+              {language === 'bn'
+                ? 'এটি নমুনা পণ্য। অ্যাডমিন বাস্তব পণ্য যোগ না করা পর্যন্ত অর্ডার করা যাবে না।'
+                : 'Sample catalog preview. Ordering is disabled until an administrator adds real products.'}
+            </p>
+          )}
           <div className="hidden sm:flex items-center gap-4 pt-2">
             <div className="flex flex-col">
               <span className="caption-4 text-muted mb-1 font-semibold">{t.product.quantity}</span>
@@ -688,15 +708,19 @@ export const ProductDetailPage: React.FC = () => {
                 type="button"
                 data-testid="add-to-cart-btn"
                 onClick={handleAddToCart}
-                disabled={isOutOfStock}
+                disabled={isOutOfStock || isSeedProduct}
                 className={`btn-base w-full h-12 button-md text-white shadow-sm font-semibold ${
-                  isOutOfStock
+                  isOutOfStock || isSeedProduct
                     ? 'bg-slate-300 text-slate-500 cursor-not-allowed border border-border'
                     : 'bg-quantum hover:bg-quantum-hover active:scale-98'
                 }`}
               >
                 <FontAwesomeIcon icon={Icons.cart} className="h-4 w-4" />
-                <span>{isOutOfStock ? t.product.outOfStock : t.product.addToCart}</span>
+                <span>
+                  {isSeedProduct
+                    ? (language === 'bn' ? 'শুধু নমুনা' : 'Preview only')
+                    : isOutOfStock ? t.product.outOfStock : t.product.addToCart}
+                </span>
               </button>
             </div>
           </div>
@@ -1146,15 +1170,19 @@ export const ProductDetailPage: React.FC = () => {
             type="button"
             data-testid="add-to-cart-mobile-btn"
             onClick={handleAddToCart}
-            disabled={isOutOfStock}
+            disabled={isOutOfStock || isSeedProduct}
             className={`btn-base h-11 px-4 button-sm text-white shadow-sm font-semibold whitespace-nowrap ${
-              isOutOfStock
+              isOutOfStock || isSeedProduct
                 ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
                 : 'bg-quantum hover:bg-quantum-hover active:scale-95'
             }`}
           >
             <FontAwesomeIcon icon={Icons.cart} className="h-3.5 w-3.5" />
-            <span>{isOutOfStock ? t.product.outOfStock : t.product.addToCart}</span>
+            <span>
+              {isSeedProduct
+                ? (language === 'bn' ? 'শুধু নমুনা' : 'Preview only')
+                : isOutOfStock ? t.product.outOfStock : t.product.addToCart}
+            </span>
           </button>
         </div>
       </div>
@@ -1448,7 +1476,7 @@ export const ProductDetailPage: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  disabled={isSubmittingReview}
+                  disabled={isSubmittingReview || isUploadingReviewImages}
                   className="btn-base bg-quantum text-white hover:bg-quantum-hover button-sm font-semibold shadow-xs disabled:opacity-60 flex items-center gap-2"
                 >
                   {isSubmittingReview && <FontAwesomeIcon icon={Icons.spinner} className="animate-spin h-3.5 w-3.5" />}

@@ -1,9 +1,17 @@
 import { Review, ReviewStats } from '../types';
-import { initialReviews } from '../data/mockData';
 import { getItem, setItem, STORAGE_KEYS } from '../utilities/storage';
 import { orderService } from './orderService';
 import { productService } from './productService';
-import { syncReviewCreate, syncReviewDelete, syncReviewModerate } from './backend';
+import { api, isBackendConnected, syncReviewDelete, syncReviewModerate } from './backend';
+
+const legacyDemoReviewIds = new Set(['rev-01', 'rev-02', 'rev-03', 'rev-04']);
+
+function getStoredReviews(): Review[] {
+  const stored = getItem<Review[]>(STORAGE_KEYS.REVIEWS, []);
+  const realReviews = stored.filter((review) => !legacyDemoReviewIds.has(review.id));
+  if (realReviews.length !== stored.length) setItem(STORAGE_KEYS.REVIEWS, realReviews);
+  return realReviews;
+}
 
 export const reviewService = {
   // Storefront: Returns approved reviews for a given product with optional sorting
@@ -11,7 +19,7 @@ export const reviewService = {
     productId?: string,
     sortBy: 'newest' | 'highest' | 'lowest' = 'newest'
   ): Review[] {
-    const all = getItem<Review[]>(STORAGE_KEYS.REVIEWS, initialReviews);
+    const all = getStoredReviews();
     let approved = all.filter(
       r => r.status === 'Approved' && (!productId || r.productId === productId)
     );
@@ -67,7 +75,7 @@ export const reviewService = {
 
   // Admin Portal: Returns all submitted reviews across all statuses
   getAllReviewsAdmin(): Review[] {
-    const all = getItem<Review[]>(STORAGE_KEYS.REVIEWS, initialReviews);
+    const all = getStoredReviews();
     return all.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   },
 
@@ -112,7 +120,7 @@ export const reviewService = {
   },
 
   // Submit new review
-  addReview(data: {
+  async addReview(data: {
     productId: string;
     productName?: string;
     reviewerName: string;
@@ -122,7 +130,10 @@ export const reviewService = {
     title: string;
     comment: string;
     images?: string[];
-  }): { success: boolean; review?: Review; error?: string } {
+  }): Promise<{ success: boolean; review?: Review; error?: string }> {
+    if (!isBackendConnected()) {
+      return { success: false, error: 'Reviews are unavailable because the backend is not connected.' };
+    }
     // 1. Validation: Reviewer Name
     const name = data.reviewerName.trim();
     if (!name || name.length < 2) {
@@ -155,22 +166,6 @@ export const reviewService = {
     }
 
     // 6. Validation & Verification: Order Number
-    let isVerifiedPurchase = false;
-    let orderId: string | undefined;
-    let verifiedOrderNum: string | undefined;
-
-    if (data.orderNumber && data.orderNumber.trim()) {
-      const verification = this.verifyPurchase(data.orderNumber, data.productId);
-      if (!verification.verified && verification.error) {
-        return { success: false, error: verification.error };
-      }
-      if (verification.verified) {
-        isVerifiedPurchase = true;
-        orderId = verification.orderId;
-        verifiedOrderNum = data.orderNumber.trim();
-      }
-    }
-
     // 7. Sanitize uploaded images
     const images: string[] = [];
     if (data.images && Array.isArray(data.images)) {
@@ -181,36 +176,41 @@ export const reviewService = {
       }
     }
 
-    // 8. Create new Review with Pending status
-    const all = this.getAllReviewsAdmin();
-    const newReview: Review = {
-      id: `rev-${Date.now()}`,
-      productId: data.productId,
-      productName: data.productName || 'QuantumTech Accessory',
-      reviewerName: name,
-      customerEmail: cleanEmail,
-      orderId,
-      orderNumber: verifiedOrderNum,
-      rating,
-      title,
-      comment,
-      images: images.length > 0 ? images : undefined,
-      isVerifiedPurchase,
-      status: 'Pending', // All new reviews require admin moderation
-      createdAt: new Date().toISOString(),
-    };
+    if (isBackendConnected()) {
+      try {
+        const created = await api<Review>('/api/reviews', {
+          method: 'POST',
+          body: JSON.stringify({
+            productId: data.productId,
+            productName: data.productName,
+            reviewerName: name,
+            customerEmail: cleanEmail,
+            orderNumber: data.orderNumber?.trim() || undefined,
+            rating,
+            title,
+            comment,
+            images: images.filter((image) => image.startsWith('http')),
+          }),
+        });
+        const all = this.getAllReviewsAdmin().filter((review) => review.id !== created.id);
+        all.unshift(created);
+        setItem(STORAGE_KEYS.REVIEWS, all);
+        window.dispatchEvent(new Event('quantum_reviews_updated'));
+        return { success: true, review: created };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to submit review.',
+        };
+      }
+    }
 
-    all.unshift(newReview);
-    setItem(STORAGE_KEYS.REVIEWS, all);
-
-    window.dispatchEvent(new Event('quantum_reviews_updated'));
-    syncReviewCreate(newReview);
-
-    return { success: true, review: newReview };
+    return { success: false, error: 'Review submission failed because the backend is unavailable.' };
   },
 
   // Moderate review (Approve or Reject)
-  moderateReview(id: string, status: 'Approved' | 'Rejected', moderator: string = 'Admin'): void {
+  async moderateReview(id: string, status: 'Approved' | 'Rejected', moderator: string = 'Admin'): Promise<void> {
+    await syncReviewModerate(id, status);
     const all = this.getAllReviewsAdmin();
     const review = all.find(r => r.id === id);
     if (review) {
@@ -220,32 +220,24 @@ export const reviewService = {
       review.updatedAt = new Date().toISOString();
       setItem(STORAGE_KEYS.REVIEWS, all);
 
-      // Recalculate product rating statistics using approved reviews only
-      this.recalculateProductStats(review.productId);
-
       window.dispatchEvent(new Event('quantum_reviews_updated'));
-      syncReviewModerate(id, status);
     }
   },
 
   // Delete review
-  deleteReview(id: string): void {
+  async deleteReview(id: string): Promise<void> {
+    await syncReviewDelete(id);
     const all = this.getAllReviewsAdmin();
     const target = all.find(r => r.id === id);
     const filtered = all.filter(r => r.id !== id);
     setItem(STORAGE_KEYS.REVIEWS, filtered);
 
-    if (target) {
-      this.recalculateProductStats(target.productId);
-    }
-
     window.dispatchEvent(new Event('quantum_reviews_updated'));
-    syncReviewDelete(id);
   },
 
   // Recalculates product rating and reviewsCount using only approved reviews
-  recalculateProductStats(productId: string): void {
+  async recalculateProductStats(productId: string): Promise<void> {
     const stats = this.getReviewStats(productId);
-    productService.updateProductRating(productId, stats.averageRating, stats.totalReviews);
+    await productService.updateProductRating(productId, stats.averageRating, stats.totalReviews);
   },
 };

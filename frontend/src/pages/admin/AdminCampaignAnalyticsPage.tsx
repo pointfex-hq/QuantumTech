@@ -6,6 +6,7 @@ import { formatCurrency } from '../../utilities/currency';
 import { useLanguage } from '../../context/LanguageContext';
 import { useToast } from '../../context/ToastContext';
 import { Icons } from '../../utilities/icons';
+import { isBackendConnected, refreshAdminPromotions, reportBackendError } from '../../services/backend';
 
 export const AdminCampaignAnalyticsPage: React.FC = () => {
   const { language } = useLanguage();
@@ -21,18 +22,33 @@ export const AdminCampaignAnalyticsPage: React.FC = () => {
     setEvents(promotionService.getAnalyticsEvents().slice(-50).reverse());
   };
 
-  useEffect(() => {
+  const refreshFromServer = async () => {
+    if (isBackendConnected()) {
+      try {
+        await refreshAdminPromotions();
+      } catch (error) {
+        reportBackendError(error);
+      }
+    }
     loadData();
+  };
+
+  useEffect(() => {
+    void refreshFromServer();
     const handleSync = () => loadData();
     window.addEventListener('quantum_analytics_updated', handleSync);
     return () => window.removeEventListener('quantum_analytics_updated', handleSync);
   }, []);
 
-  const handleReset = () => {
+  const handleReset = async () => {
     if (window.confirm('Are you sure you want to clear promotional analytics history?')) {
-      promotionService.clearAnalytics();
-      showToast('Analytics logs reset.', 'info');
-      loadData();
+      try {
+        await promotionService.clearAnalytics();
+        showToast('Analytics logs reset.', 'info');
+        loadData();
+      } catch (error) {
+        showToast(error instanceof Error ? error.message : 'Failed to reset analytics logs.', 'error');
+      }
     }
   };
 
@@ -49,7 +65,7 @@ export const AdminCampaignAnalyticsPage: React.FC = () => {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={loadData}
+            onClick={() => void refreshFromServer()}
             className="btn-base px-3.5 py-2 rounded-xl border border-border bg-surface text-ink hover:bg-surface-alt text-xs font-semibold shadow-xs flex items-center gap-1.5"
           >
             <FontAwesomeIcon icon={Icons.refresh} className="h-3 w-3" />

@@ -148,7 +148,7 @@ export const Header: React.FC = () => {
           </div>
 
           {/* Center: Desktop Navigation with Categories Dropdown */}
-          <nav className="hidden lg:flex flex-shrink-0 items-center gap-0 xl:gap-1">
+          <nav className="hidden xl:flex flex-shrink-0 items-center gap-0 xl:gap-1">
             <NavLink
               to="/"
               className={({ isActive }) =>
@@ -280,7 +280,7 @@ export const Header: React.FC = () => {
           </nav>
 
           {/* Desktop Search Bar */}
-          <div className="hidden md:flex flex-1 max-w-xs xl:max-w-sm mx-2">
+          <div className="hidden md:flex min-w-0 flex-1 max-w-xs xl:max-w-sm mx-2">
             <SearchBar />
           </div>
 

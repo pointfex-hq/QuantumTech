@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { useLanguage } from '../context/LanguageContext';
-import { useToast } from '../context/ToastContext';
 import { ProductGrid } from '../components/ProductGrid';
 import { CategoryCard } from '../components/CategoryCard';
 import { TaglineReveal } from '../components/TaglineReveal';
@@ -18,9 +17,6 @@ import heroBannerImg from '../assets/brand/hero-banner.png';
 
 export const HomePage: React.FC = () => {
   const { language, t } = useLanguage();
-  const { showToast } = useToast();
-  const [newsletterEmail, setNewsletterEmail] = useState('');
-  const [subscribed, setSubscribed] = useState(false);
 
   // Centralized real-time products, categories, reviews & campaigns from service layer
   const [products, setProducts] = useState<Product[]>(() => productService.getProducts());
@@ -60,17 +56,6 @@ export const HomePage: React.FC = () => {
   // Dynamic Campaigns
   const featuredCampaign = activeCampaigns.find((c) => c.bannerPosition === 'featured');
   const middleCampaign = activeCampaigns.find((c) => c.bannerPosition === 'middle');
-
-  const handleNewsletterSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newsletterEmail || !newsletterEmail.includes('@')) {
-      showToast('Please enter a valid email address.', 'error');
-      return;
-    }
-    setSubscribed(true);
-    showToast('Thank you for subscribing! We will send you exclusive accessory drops.', 'success');
-    setNewsletterEmail('');
-  };
 
   const faqs = [
     {
@@ -523,71 +508,6 @@ export const HomePage: React.FC = () => {
         </div>
       </section>
 
-      {/* 9. SOCIAL CONNECTION & NEWSLETTER SECTION */}
-      <section className="py-16 sm:py-20 bg-surface border-t border-border">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          <span className="caption-3 px-3 py-1 rounded-full bg-quantum-soft text-quantum font-semibold uppercase tracking-wider mb-2 inline-block">
-            Stay in the Loop
-          </span>
-          <h2 className="heading-4 sm:heading-3 font-bold text-ink mb-2">
-            Join the QuantumTech Community
-          </h2>
-          <p className="body-4 text-muted max-w-md mx-auto mb-6">
-            Get notified of flash discounts, new accessory shipments, and tech care guides.
-          </p>
-
-          {/* Email Newsletter Form */}
-          <form onSubmit={handleNewsletterSubmit} className="flex flex-col sm:flex-row items-center justify-center gap-2 max-w-md mx-auto mb-8">
-            <input
-              type="email"
-              value={newsletterEmail}
-              onChange={(e) => setNewsletterEmail(e.target.value)}
-              placeholder="Enter your email address..."
-              required
-              className="w-full sm:w-auto flex-1 rounded-xl border border-border bg-surface px-4 py-2.5 text-sm text-ink focus:outline-none focus:border-quantum"
-            />
-            <button
-              type="submit"
-              className="btn-base bg-quantum text-white hover:bg-quantum-hover button-sm h-10 w-full sm:w-auto px-5"
-            >
-              Subscribe
-            </button>
-          </form>
-
-          {/* Social Quick Connections */}
-          <div className="flex flex-wrap items-center justify-center gap-3">
-            <a
-              href={settings.facebookUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="btn-base bg-surface border border-border text-ink hover:text-blue-600 hover:border-blue-300 button-sm"
-            >
-              <FontAwesomeIcon icon={Icons.facebook} className="h-4 w-4 text-blue-600" />
-              <span>Facebook</span>
-            </a>
-
-            <a
-              href={settings.instagramUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="btn-base bg-surface border border-border text-ink hover:text-quantum hover:border-quantum/40 button-sm"
-            >
-              <FontAwesomeIcon icon={Icons.instagram} className="h-4 w-4 text-pink-600" />
-              <span>Instagram</span>
-            </a>
-
-            <a
-              href={`https://wa.me/${settings.whatsappNumber.replace(/[^0-9]/g, '')}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="btn-base bg-surface border border-border text-ink hover:text-emerald-600 hover:border-emerald-300 button-sm"
-            >
-              <FontAwesomeIcon icon={Icons.whatsapp} className="h-4 w-4 text-emerald-600" />
-              <span>WhatsApp</span>
-            </a>
-          </div>
-        </div>
-      </section>
     </div>
   );
 };
