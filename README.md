@@ -120,87 +120,17 @@ QuantumTech implements a robust stock calculation model across the entire applic
 
 ```text
 QuantumTech/
-├── dist/                          # Production build output
-├── public/                        # Static assets (favicons, banners)
-├── scripts/                       # End-to-end automated test suites
-│   ├── audit-full-system.mjs      # Viewport & route audit
-│   ├── test-admin.mjs             # Admin dashboard & product CRUD test
-│   ├── test-admin-orders-reviews.mjs # Order transitions & review moderation test
-│   ├── test-complete-journeys.mjs # Full customer purchase journeys
-│   ├── test-interactions.mjs      # Cart, checkout, and tracking tests
-│   ├── test-language-system.mjs   # English/Bangla localization test
-│   ├── test-promotions-system.mjs # Popups, campaigns, and discounts test
-│   ├── test-review-system.mjs     # Review submission & verification test
-│   └── test-stock-sync.mjs        # Product variant stock synchronization test
-├── src/
-│   ├── components/                # Reusable UI components
-│   │   ├── Breadcrumb.tsx
-│   │   ├── Footer.tsx
-│   │   ├── Header.tsx
-│   │   ├── Navbar.tsx
-│   │   ├── Pagination.tsx
-│   │   ├── PriceDisplay.tsx
-│   │   ├── ProductCard.tsx
-│   │   ├── PromotionalPopup.tsx
-│   │   └── QuantitySelector.tsx
-│   ├── context/                   # React Context state providers
-│   │   ├── AuthContext.tsx
-│   │   ├── CartContext.tsx
-│   │   ├── LanguageContext.tsx
-│   │   └── ToastContext.tsx
-│   ├── data/                      # Initial seed and mock data
-│   │   └── mockData.ts
-│   ├── pages/                     # Storefront & Admin page views
-│   │   ├── AboutPage.tsx
-│   │   ├── CampaignLandingPage.tsx
-│   │   ├── CartPage.tsx
-│   │   ├── CheckoutPage.tsx
-│   │   ├── ContactPage.tsx
-│   │   ├── HomePage.tsx
-│   │   ├── NotFoundPage.tsx
-│   │   ├── OrderConfirmationPage.tsx
-│   │   ├── PoliciesPage.tsx
-│   │   ├── ProductDetailPage.tsx
-│   │   ├── ShopPage.tsx
-│   │   ├── TrackOrderPage.tsx
-│   │   └── admin/                 # Admin management views
-│   │       ├── AdminAnalyticsPage.tsx
-│   │       ├── AdminCampaignsPage.tsx
-│   │       ├── AdminCategoriesPage.tsx
-│   │       ├── AdminCouponsPage.tsx
-│   │       ├── AdminDashboardPage.tsx
-│   │       ├── AdminDiscountsPage.tsx
-│   │       ├── AdminLoginPage.tsx
-│   │       ├── AdminOrderDetailPage.tsx
-│   │       ├── AdminOrdersPage.tsx
-│   │       ├── AdminPopupsPage.tsx
-│   │       ├── AdminProductFormPage.tsx
-│   │       ├── AdminProductsPage.tsx
-│   │       ├── AdminReviewsPage.tsx
-│   │       └── AdminSettingsPage.tsx
-│   ├── services/                  # Business logic & data services
-│   │   ├── authService.ts
-│   │   ├── cartService.ts
-│   │   ├── categoryService.ts
-│   │   ├── orderService.ts
-│   │   ├── productService.ts
-│   │   ├── promotionService.ts
-│   │   ├── reviewService.ts
-│   │   └── settingsService.ts
-│   ├── types/                     # TypeScript data interfaces
-│   │   └── index.ts
-│   ├── utilities/                 # Helpers, formatting, and icons
-│   │   ├── currency.ts
-│   │   ├── icons.ts
-│   │   ├── storage.ts
-│   │   └── translations.ts
-│   ├── App.tsx                    # Root routing & layout provider
-│   ├── index.css                  # Tailwind styles and custom typography
-│   └── main.tsx                   # React DOM entry point
-├── package.json
-├── tailwind.config.js
-├── tsconfig.json
-└── vite.config.ts
+├── backend/                       # Backend application
+├── frontend/
+│   ├── src/                       # React application
+│   ├── index.html
+│   ├── package.json
+│   ├── package-lock.json
+│   ├── postcss.config.js
+│   ├── tailwind.config.js
+│   ├── tsconfig*.json
+│   └── vite.config.ts
+└── README.md
 ```
 
 ---
@@ -216,14 +146,16 @@ QuantumTech/
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/sakib-011/QuantumTech_personal.git
-   cd QuantumTech_personal
+   git clone https://github.com/pointfex-hq/QuantumTech.git
+   cd QuantumTech/frontend
    ```
 
 2. Install dependencies:
    ```bash
    npm install
    ```
+
+Vite reads `VITE_API_URL` from the repository-root `.env` file.
 
 ### Development Server
 
