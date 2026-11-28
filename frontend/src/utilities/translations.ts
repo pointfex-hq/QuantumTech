@@ -530,7 +530,7 @@ export const translations = {
       callUs: 'Hotline',
       hours: 'Everyday: 10:00 AM - 10:00 PM',
       addressText: 'Dhaka, Bangladesh',
-      copyright: 'All rights reserved. Powered by Team Beryllium.',
+      copyright: 'All rights reserved.',
       chatWithUs: 'Chat on WhatsApp',
     },
     notFound: {
@@ -1071,7 +1071,7 @@ export const translations = {
       callUs: 'হটলাইন',
       hours: 'প্রতিদিন: সকাল ১০:০০ - রাত ১০:০০',
       addressText: 'ঢাকা, বাংলাদেশ',
-      copyright: 'সর্বস্বত্ব সংরক্ষিত। টিম বেরিলিয়াম দ্বারা নির্মিত।',
+      copyright: 'সর্বস্বত্ব সংরক্ষিত।',
       chatWithUs: 'হোয়াটসঅ্যাপে চ্যাট করুন',
     },
     notFound: {

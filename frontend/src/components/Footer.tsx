@@ -6,6 +6,7 @@ import { Icons } from '../utilities/icons';
 import { categoryService } from '../services/categoryService';
 import { settingsService } from '../services/settingsService';
 import logoIcon from '../assets/brand/logo-icon.png';
+import pointfexLogo from '../assets/brand/pointfex.jpg';
 
 export const Footer: React.FC = () => {
   const { language, t } = useLanguage();
@@ -237,7 +238,32 @@ export const Footer: React.FC = () => {
 
         {/* Policies & Copyright Bottom Row */}
         <div className="mt-10 sm:mt-14 pt-6 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500">
-          <p>© {new Date().getFullYear()} {storeSettings.storeName}. {t.footer.copyright}</p>
+          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-3">
+            <p>© {new Date().getFullYear()} {storeSettings.storeName}. {t.footer.copyright}</p>
+            <span className="flex items-center gap-2">
+              <span>{language === 'bn' ? 'নির্মাতা' : 'Made by'}</span>
+              <a
+                href="https://www.pointfex.com/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-slate-300 hover:text-white transition-colors"
+                aria-label="Pointfex website"
+              >
+                <img src={pointfexLogo} alt="" className="h-5 w-5 rounded-full object-cover" />
+                <span>Pointfex</span>
+              </a>
+              <a
+                href="https://www.facebook.com/pointfexsolution"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 hover:text-white transition-colors"
+                aria-label="Pointfex on Facebook"
+              >
+                <FontAwesomeIcon icon={Icons.facebook} className="h-3.5 w-3.5" />
+                <span>Facebook</span>
+              </a>
+            </span>
+          </div>
           
           <div className="flex flex-wrap items-center gap-4 sm:gap-6">
             <Link to="/policies/delivery" className="hover:text-slate-300 transition-colors">
