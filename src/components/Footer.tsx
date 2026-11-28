@@ -168,11 +168,6 @@ export const Footer: React.FC = () => {
                   {t.nav.contact}
                 </Link>
               </li>
-              <li>
-                <Link to="/admin" className="text-slate-400 hover:text-quantum transition-colors">
-                  {t.nav.admin}
-                </Link>
-              </li>
             </ul>
           </div>
 
