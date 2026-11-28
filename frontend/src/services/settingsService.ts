@@ -6,7 +6,13 @@ import { syncSettings } from './backend';
 export const settingsService = {
   getSettings(): StoreSettings {
     const saved = getItem<StoreSettings>(STORAGE_KEYS.SETTINGS, defaultStoreSettings);
-    return { ...defaultStoreSettings, ...saved };
+    const settings = { ...defaultStoreSettings, ...saved };
+    for (const key of Object.keys(settings) as (keyof StoreSettings)[]) {
+      if (settings[key] == null) {
+        Object.assign(settings, { [key]: defaultStoreSettings[key] });
+      }
+    }
+    return settings;
   },
 
   async saveSettings(newSettings: StoreSettings): Promise<StoreSettings> {
